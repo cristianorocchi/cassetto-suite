@@ -373,9 +373,11 @@ def test_add_scene_inside_lists_only_the_act_on_screen(server, browser, home):
     pl = frame(page, "plastico")
     pl.wait_for_selector("#acts .filter >> text=Act 2")
 
-    def parents():
+    def parents(act=""):
         pl.click("#btn-add")
         pl.wait_for_selector("#f-new-parent")
+        if act:     # the act chosen in the dialog
+            pl.select_option("#f-new-act", act)
         ids = pl.eval_on_selector_all("#f-new-parent option", "os => os.map(o => o.value)")
         pl.click(".modal-foot >> text=Cancel")
         return ids
@@ -384,6 +386,9 @@ def test_add_scene_inside_lists_only_the_act_on_screen(server, browser, home):
     assert parents() == ["lamp_room", "lighthouse"]
     pl.click("#acts .filter >> text=Act 1")
     assert parents() == ["harbour"]
+    # every act on screen: still one act's scenes, the act chosen in the dialog
     pl.click("#acts .filter >> text=Every act")
-    assert sorted(parents()) == ["harbour", "lamp_room", "lighthouse"]
+    assert parents() == ["harbour"]
+    assert parents(act="2") == ["lamp_room", "lighthouse"]
     assert not errors, errors
+
