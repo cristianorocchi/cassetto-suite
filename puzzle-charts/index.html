@@ -1852,7 +1852,12 @@ if (CS) {
     navigate: async (t) => {
       await loaded();
       if (!t) return;
-      if (t.chart && !S.charts.has(t.chart)) { toast('That chart isn’t in this project any more.'); return; }
+      if (t.chart && !S.charts.has(t.chart)) {
+        // just made (from a scene in Plastico): read the charts again rather than wait for the news
+        if (window.cassettoDb) { try { await window.cassettoDb.refresh('charts'); } catch (e) { /* the wait below */ } }
+        for (let i = 0; i < 30 && !S.charts.has(t.chart); i++) await new Promise((r) => setTimeout(r, 100));
+        if (!S.charts.has(t.chart)) { toast('That chart isn’t in this project any more.'); return; }
+      }
       if (t.chart && t.chart !== S.currentId) openChart(t.chart);
       if (t.step) {
         const c = cur();

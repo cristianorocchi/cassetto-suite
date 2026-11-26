@@ -23,7 +23,8 @@
   const newId = () => 'c' + Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
 
   const told = new Set();
-  function listen(load, types, cb, errCb) {
+  const runners = new Map();   // collection name -> the reloads of its listeners
+  function listen(name, load, types, cb, errCb) {
     let timer = 0, alive = true;
     const run = async () => {
       try { const docs = await load(); if (alive) cb(snap(docs)); }
@@ -31,9 +32,14 @@
     };
     const later = () => { clearTimeout(timer); timer = setTimeout(run, 120); };
     const offs = types.map((t) => C.on(t, later));
+    if (!runners.has(name)) runners.set(name, new Set());
+    runners.get(name).add(run);
     run();
-    return () => { alive = false; offs.forEach((f) => f()); };
+    return () => { alive = false; offs.forEach((f) => f()); runners.get(name).delete(run); };
   }
+  // Read a collection again now, without waiting for the project's event: the page asks for this when it
+  // is told to show a chart it hasn't heard of yet (made a moment ago from a scene in Plastico).
+  window.cassettoDb = { refresh: (name) => Promise.all([...(runners.get(name) || [])].map((r) => r())) };
 
   async function loadCharts() {
     const r = await C.api('GET', '/api/puzzles/charts');
@@ -57,14 +63,14 @@
           };
         },
         limit() { return this; },
-        onSnapshot: (cb, errCb) => listen(loadCharts, ['puzzles.changed', 'project.opened'], cb, errCb),
+        onSnapshot: (cb, errCb) => listen('charts', loadCharts, ['puzzles.changed', 'project.opened'], cb, errCb),
       };
     }
     if (name === 'meta') {
       return {
         doc(id) { return { id, set: () => Promise.reject(Object.assign(new Error('read only'), { code: 'invalid_argument' })), delete: () => Promise.resolve() }; },
         limit() { return this; },
-        onSnapshot: (cb, errCb) => listen(loadMeta, ['world.changed', 'project.opened'], cb, errCb),
+        onSnapshot: (cb, errCb) => listen('meta', loadMeta, ['world.changed', 'project.opened'], cb, errCb),
       };
     }
     throw new Error(`no collection ${name}`);

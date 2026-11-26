@@ -309,3 +309,32 @@ def test_shell_reports_a_project_it_cannot_open(server, browser, home):
     page.click("text=Open this project")
     page.wait_for_selector(".toast.bad >> text=newer Cassetto")
     assert core.project is None
+
+
+def test_a_new_chart_from_a_scene_is_the_one_that_opens(server, browser, home):
+    """Puzzle Charts already showing another chart: "New chart for this scene" must open the new one,
+    every time, even though Puzzle Charts hears about it after it is asked to show it."""
+    core, srv = server()
+    core.create_project(home / "p", "P")
+    from plastico import store
+    root = core.project.path / "plastico"
+    w = store.load("world", root)
+    w["scenes"] = [{"id": f"room_{i}", "name": f"Room {i}", "kind": "inside", "x": 3 + 7 * i, "z": 2} for i in range(4)]
+    store.save(w, root=root)
+    old = core.call("puzzles.create_chart", "An old chart")
+    page, errors = open_shell(browser, srv.url)
+    page.wait_for_selector("#tree:not([hidden]) .tn.chart")
+    page.click("#tree .tn.chart >> text=An old chart")          # Puzzle Charts loaded, showing the old chart
+    pz = frame(page, "puzzles")
+    pz.wait_for_function("document.querySelector('#f-chart-name') && document.querySelector('#f-chart-name').value === 'An old chart'")
+    pl = frame(page, "plastico")
+    for i in range(4):
+        page.click(f"#tree .tn.scene >> text=Room {i}")
+        pl.wait_for_function(f"document.querySelector('#f-id') && document.querySelector('#f-id').value === 'room_{i}'")
+        pl.click("text=New chart for this scene")
+        page.wait_for_function("document.querySelector('.tab[aria-selected=true]').textContent.includes('Puzzle Charts')")
+        pz.wait_for_function(f"document.querySelector('#f-chart-name') && document.querySelector('#f-chart-name').value === 'Room {i}'", timeout=8000)
+        cid = {s["id"]: s for s in store.load("world", root)["scenes"]}[f"room_{i}"]["charts"]
+        assert len(cid) == 1 and cid[0] != old
+    assert not pz.is_visible("text=That chart isn’t in this project any more")
+    assert not [e for e in errors if "favicon" not in e], errors
