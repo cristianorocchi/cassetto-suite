@@ -5,3 +5,7 @@ __pycache__/
 backups/
 worlds/.history/
 worlds/.trash/
+dist/
+build/
+.build-env/
+*.egg-info/

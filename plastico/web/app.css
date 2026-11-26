@@ -349,3 +349,12 @@ h2,h3{margin:0;text-wrap:balance}
   .hint{display:none}
 }
 @media (prefers-reduced-motion:reduce){.side{transition:none}.lab.avail .lab-card{animation:none}.lab{transition:none}}
+
+/* inside Cassetto: the shell owns the project (one world per project), and steps open in Puzzle Charts */
+.in-cassetto .side-head,.in-cassetto #world-list{display:none}
+.in-cassetto .app{padding-top:2px}
+.steps li.link{cursor:pointer;border-radius:5px}
+.steps li.link:hover,.steps li.link:focus-visible{background:var(--surface-2)}
+.steps + .btn{margin-top:8px}
+.in-cassetto #status,.in-cassetto #cur-name{display:none}
+.steps li.chart-name{display:block}

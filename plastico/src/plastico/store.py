@@ -10,12 +10,18 @@ import shutil
 import time
 from pathlib import Path
 
-from . import WORLDS
+import plastico as _pkg
 from .godot import pascal
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 HISTORY_KEEP = 60
 DEFAULT_KIND = "inside"
+
+
+def _root(root: Path | None) -> Path:
+    """The worlds folder: the one given, else the package's current one (plastico.WORLDS), which a host
+    app such as Cassetto points at its open project."""
+    return Path(root) if root is not None else _pkg.WORLDS
 
 
 class Conflict(Exception):
@@ -38,13 +44,15 @@ def nice_name(sid: str) -> str:
     return sid.replace("_", " ").strip().capitalize()
 
 
-def world_path(wid: str, root: Path = WORLDS) -> Path:
+def world_path(wid: str, root: Path | None = None) -> Path:
+    root = _root(root)
     if not ID_RE.match(wid):
         raise ValueError(f"bad world id {wid!r}")
     return root / f"{wid}.json"
 
 
-def files_dir(wid: str, root: Path = WORLDS) -> Path:
+def files_dir(wid: str, root: Path | None = None) -> Path:
+    root = _root(root)
     return world_path(wid, root).with_suffix(".files")
 
 
@@ -130,7 +138,8 @@ def normalize(w: dict) -> dict:
     return w
 
 
-def list_worlds(root: Path = WORLDS) -> list[dict]:
+def list_worlds(root: Path | None = None) -> list[dict]:
+    root = _root(root)
     out = []
     root.mkdir(parents=True, exist_ok=True)
     for f in sorted(root.glob("*.json")):
@@ -147,11 +156,13 @@ def list_worlds(root: Path = WORLDS) -> list[dict]:
     return out
 
 
-def load(wid: str, root: Path = WORLDS) -> dict:
+def load(wid: str, root: Path | None = None) -> dict:
+    root = _root(root)
     return normalize(json.loads(world_path(wid, root).read_text(encoding="utf-8")))
 
 
-def exists(wid: str, root: Path = WORLDS) -> bool:
+def exists(wid: str, root: Path | None = None) -> bool:
+    root = _root(root)
     return world_path(wid, root).exists()
 
 
@@ -162,8 +173,9 @@ def _write(path: Path, data: dict) -> None:
     tmp.replace(path)
 
 
-def save(world: dict, base_rev: int | None = None, root: Path = WORLDS) -> dict:
+def save(world: dict, base_rev: int | None = None, root: Path | None = None) -> dict:
     """Saves the plan. With base_rev, refuses (Conflict) if someone saved since that version."""
+    root = _root(root)
     world = normalize(world)
     path = world_path(world["id"], root)
     if path.exists():
@@ -185,7 +197,8 @@ def save(world: dict, base_rev: int | None = None, root: Path = WORLDS) -> dict:
     return world
 
 
-def create(name: str, godot: str = "", root: Path = WORLDS) -> dict:
+def create(name: str, godot: str = "", root: Path | None = None) -> dict:
+    root = _root(root)
     base = slug(name)
     wid, k = base, 2
     while world_path(wid, root).exists():
@@ -193,8 +206,9 @@ def create(name: str, godot: str = "", root: Path = WORLDS) -> dict:
     return save(blank_world(wid, name.strip() or "New world", godot), root=root)
 
 
-def remove(wid: str, root: Path = WORLDS) -> Path:
+def remove(wid: str, root: Path | None = None) -> Path:
     """Moves a world (and its charts and pictures) to worlds/.trash/<time>/. Nothing is deleted."""
+    root = _root(root)
     trash = root / ".trash" / time.strftime("%Y%m%d-%H%M%S")
     trash.mkdir(parents=True, exist_ok=True)
     for f in (world_path(wid, root), world_path(wid, root).with_suffix(".charts.json"), files_dir(wid, root)):
@@ -203,7 +217,8 @@ def remove(wid: str, root: Path = WORLDS) -> Path:
     return trash
 
 
-def load_charts(wid: str, root: Path = WORLDS) -> dict | None:
+def load_charts(wid: str, root: Path | None = None) -> dict | None:
+    root = _root(root)
     f = root / f"{wid}.charts.json"
     if not f.exists():
         return None
@@ -213,7 +228,8 @@ def load_charts(wid: str, root: Path = WORLDS) -> dict | None:
         return None
 
 
-def save_charts(wid: str, data: dict, root: Path = WORLDS) -> None:
+def save_charts(wid: str, data: dict, root: Path | None = None) -> None:
+    root = _root(root)
     _write(root / f"{wid}.charts.json", data)
 
 

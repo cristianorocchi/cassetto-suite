@@ -121,6 +121,9 @@ h2,h3{margin:0;text-wrap:balance}
 .legend li b{display:block;color:var(--ink);font-weight:600;font-size:12.5px}
 .legend .g{margin-top:2px}
 .side-note{margin:auto 0 0;padding:14px 4px 0;font-size:12px;line-height:1.45;color:var(--muted)}
+.in-cassetto #status{display:none}
+.linkrow{margin:-4px 0 12px}
+.linkrow .warn{display:block;font-size:12px;line-height:1.4;color:var(--k-item)}
 .g{width:12px;height:12px;flex:none;display:inline-block;vertical-align:-1px}
 .g path{fill:currentColor}
 
@@ -356,7 +359,7 @@ h2,h3{margin:0;text-wrap:balance}
     </div>
     <div class="chart-list" id="chart-list"></div>
     <section class="legend"><h3>Kinds of step</h3><ul id="legend"></ul></section>
-    <p class="side-note">Arrows run from what a step needs to what it opens, through the sub goals, down to the end goal. Charts are saved with this page, and Claude can read them back when it builds the puzzles in Godot.</p>
+    <p class="side-note" id="side-note">Arrows run from what a step needs to what it opens, through the sub goals, down to the end goal. Charts are saved with this page, and Claude can read them back when it builds the puzzles in Godot.</p>
   </aside>
   <div class="scrim" id="scrim" hidden></div>
 
@@ -475,6 +478,8 @@ const S = {
   routes: new Map(), routesChart: null, layoutPos: null, layoutSeq: 0, layoutTimer: 0, layoutOpts: null, animFrame: 0, animating: false,
 };
 const clientId = Math.random().toString(36).slice(2, 8);
+// Inside Cassetto (the desktop suite) the charts are saved in the project, and steps link to Plastico.
+const CS = window.cassetto && window.cassetto.embedded ? window.cassetto : null;
 let revCounter = 0;
 
 /* ------------------------------------------------------------------ helpers */
@@ -604,6 +609,12 @@ function analyze(c) {
     if (!p.length && !s && c.nodes.length > 1) { issues.push({ level: 'warn', head: 'Not linked', text: `${nodeTitle(n)} isn't linked to anything.`, nodes: [n.id] }); continue; }
     if ((n.kind === 'item' || n.kind === 'combo') && !s) { issues.push({ level: 'warn', head: 'Item never used', text: `The player ${n.kind === 'combo' ? 'makes' : 'gets'} ${nodeTitle(n)} but nothing needs it.`, nodes: [n.id] }); continue; }
     if (goals.length && !toGoal.has(n.id)) issues.push({ level: 'warn', head: 'Leads nowhere', text: `${nodeTitle(n)} doesn't help reach the end goal.`, nodes: [n.id] });
+  }
+  if (SCENES.length) {   // the world's lists are known (Plastico, through Cassetto or a sync)
+    const away = c.nodes.filter((n) => n.scene && !SCENE_NAME[n.scene]);
+    if (away.length) issues.push({ level: 'warn', head: 'Place not in the world', text: `${listNames(away.map((n) => nodeTitle(n)))} ${away.length > 1 ? 'are' : 'is'} placed in ${listNames([...new Set(away.map((n) => n.scene))])}, which the world doesn't have. Pick a scene it has, or add the scene in Plastico.`, nodes: away.map((n) => n.id) });
+    const nobody = c.nodes.filter((n) => n.who && !PERSON_NAME[n.who]);
+    if (nobody.length) issues.push({ level: 'warn', head: 'Person not in the world', text: `${listNames(nobody.map((n) => nodeTitle(n)))} ${nobody.length > 1 ? 'involve' : 'involves'} ${listNames([...new Set(nobody.map((n) => n.who))])}, who isn't among the world's people.`, nodes: nobody.map((n) => n.id) });
   }
   const subgoals = c.nodes.filter((n) => n.kind === 'subgoal');
   const setups = c.nodes.filter((n) => n.kind === 'setup').length;
@@ -959,9 +970,21 @@ function nodePanel(box, c, n) {
   box.append(field('What happens', input('f-title', n.title, KINDS[n.kind].title, (v) => { beginEdit('title:' + n.id); n.title = v; scheduleSave(); refreshNode(n); })));
 
   const r = el('div', 'row2');
-  const sc = input('f-scene', n.scene, 'Any', (v) => { beginEdit('scene:' + n.id); n.scene = v.trim(); scheduleSave(); refreshNode(n); }); sc.setAttribute('list', 'dl-scenes');
+  const linkRow = el('div', 'linkrow');
+  const sc = input('f-scene', n.scene, 'Any', (v) => { beginEdit('scene:' + n.id); n.scene = v.trim(); scheduleSave(); refreshNode(n); drawLink(); }); sc.setAttribute('list', 'dl-scenes');
   const wh = input('f-who', n.who, 'Nobody', (v) => { beginEdit('who:' + n.id); n.who = v.trim(); scheduleSave(); refreshNode(n); }); wh.setAttribute('list', 'dl-people');
   r.append(field('Where', sc), field('Who', wh)); box.append(r);
+  // the step's scene in the world (Plastico): a way there, or a warning that the world doesn't have it
+  function drawLink() {
+    linkRow.textContent = ''; linkRow.hidden = !(n.scene && SCENES.length);
+    if (linkRow.hidden) return;
+    if (SCENE_NAME[n.scene]) {
+      if (!CS) { linkRow.hidden = true; return; }
+      const b = el('button', 'btn small', `Show ${sceneName(n.scene)} in Plastico`); b.type = 'button';
+      b.onclick = () => { flushNow(c.id); CS.navigate('plastico', { scene: n.scene }); }; linkRow.append(b);
+    } else linkRow.append(el('span', 'warn', `No scene “${n.scene}” in the world yet: ${CS ? 'add it in Plastico' : 'add it to the world'}, or pick one it has.`));
+  }
+  drawLink(); box.append(linkRow);
 
   const r2 = el('div', 'row2');
   const when = el('select'); when.id = 'f-when'; when.disabled = ro;
@@ -1108,6 +1131,7 @@ function updateStatus() {
   else if (S.inflight.size || S.dirty.size) { s = 'busy'; text = 'Saving…'; tip = 'Saving your changes.'; }
   else if (!S.loaded) { s = 'busy'; text = 'Loading'; tip = 'Loading your charts.'; }
   b.dataset.s = s; t.textContent = text; b.title = tip; b.setAttribute('aria-label', `${text}. ${tip}`);
+  if (CS) CS.status(s === 'ok' ? 'saved' : s === 'off' ? 'err' : s, tip);
 }
 function render() { renderSide(); renderCanvas(); renderInspector(); updateChrome(); }
 function select(sel) {
@@ -1800,6 +1824,37 @@ async function init() {
   } catch (e) { /* not told: keep editing on */ }
 }
 window.addEventListener('resize', () => { if (cur() && !cur().nodes.length) fitView(); });
+if (CS) {
+  document.documentElement.classList.add('in-cassetto');   // the shell shows the save status
+  $('#side-note').textContent = 'Arrows run from what a step needs to what it opens, through the sub goals, down to the end goal. Charts are saved in this Cassetto project; the scenes and people come from its world in Plastico.';
+  const loaded = async () => { for (let i = 0; i < 100 && !S.loaded; i++) await new Promise((r) => setTimeout(r, 100)); };
+  CS.register({
+    flush: async () => {
+      for (const id of [...S.dirty]) { clearTimeout(S.timers.get(id)); await flush(id); }
+      for (let i = 0; i < 50 && S.inflight.size; i++) await new Promise((r) => setTimeout(r, 60));
+    },
+    navigate: async (t) => {
+      await loaded();
+      if (!t) return;
+      if (t.create) {      // a new step, placed where Plastico asked
+        if (!cur()) newChart();
+        if (S.play) stopPlay();
+        const r = stage.getBoundingClientRect();
+        const w = toWorld(r.left + r.width / 2, r.top + r.height * 0.45);
+        const n = addNodeAt('action', w.x - NODE_W / 2, w.y - 40);
+        if (n) { n.scene = t.create.scene || ''; if (t.create.who) n.who = t.create.who; scheduleSave(); render(); centerOn(n.id); focusTitle(); toast(`New step in ${sceneName(n.scene) || 'the scene'}: write what happens, then link it.`); }
+        return;
+      }
+      if (t.chart && !S.charts.has(t.chart)) { toast('That chart isn’t in this project any more.'); return; }
+      if (t.chart && t.chart !== S.currentId) openChart(t.chart);
+      if (t.step) {
+        const c = cur();
+        if (c && c.nodes.some((n) => n.id === t.step)) { S.sel = { type: 'node', id: t.step }; S.play = null; render(); requestAnimationFrame(() => centerOn(t.step)); }
+        else toast('That step isn’t on the chart any more.');
+      }
+    },
+  });
+}
 init();
 })();
 </script>

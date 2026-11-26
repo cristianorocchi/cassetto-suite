@@ -24,6 +24,21 @@ def _wlock(wid: str) -> threading.Lock:
         return _world_locks.setdefault(wid, threading.Lock())
 
 
+def _synced_charts(wid: str) -> dict | None:
+    """Standalone: the copy of the puzzle charts Claude synced into worlds/<id>.charts.json."""
+    return store.load_charts(wid)
+
+
+_charts_source = _synced_charts
+
+
+def set_charts_source(fn) -> None:
+    """Where a world's puzzle charts come from: fn(world_id) -> {"charts": [...]} or None. A host app
+    (Cassetto) points this at its live Puzzle Charts module; None goes back to the synced copy."""
+    global _charts_source
+    _charts_source = fn or _synced_charts
+
+
 def world_bundle(wid: str) -> dict:
     """The plan, the game as it is now, the puzzle charts and the changes waiting to be built."""
     with _wlock(wid):
@@ -43,7 +58,7 @@ def world_bundle(wid: str) -> dict:
             world = store.save(world)
     changes = apply.plan_changes(world, game)
     last = apply.last_backup(wid)
-    return {"world": world, "game": game, "game_error": game_error, "charts": store.load_charts(wid),
+    return {"world": world, "game": game, "game_error": game_error, "charts": _charts_source(wid),
             "changes": changes, "last_build": ({"time": last["time"], "report": last["report"]} if last else None),
             "uploads": sorted(p.stem for p in store.files_dir(wid).glob("*.jpg")) if store.files_dir(wid).exists() else []}
 
@@ -96,20 +111,12 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(url.query)
         if method != "GET" and self.headers.get("X-Plastico") != "1":
             return self._err(403, "missing X-Plastico header")
+        if path.startswith("/api/"):
+            return handle(self, method, path[5:], q)
+        if method != "GET":
+            return self._err(405, "method not allowed")
         try:
-            if path.startswith("/api/"):
-                return self._api(method, path[5:], q)
-            if method != "GET":
-                return self._err(405, "method not allowed")
             return self._static(path)
-        except store.Conflict as c:
-            return self._json({"error": "conflict", "world": c.world}, 409)
-        except apply.BuildError as e:
-            return self._err(400, str(e))
-        except (ValueError, KeyError) as e:
-            return self._err(400, str(e))
-        except FileNotFoundError as e:
-            return self._err(404, str(e))
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
             return self._err(500, f"{type(e).__name__}: {e}")
@@ -144,100 +151,125 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- API ---
     def _api(self, method: str, path: str, q: dict):
-        parts = [p for p in path.split("/") if p]
-        if parts == ["worlds"] and method == "GET":
-            return self._json({"worlds": store.list_worlds()})
-        if parts == ["worlds"] and method == "POST":
-            b = self._jbody()
-            proj = (b.get("godot") or "").strip()
-            if proj and not godot.is_godot_project(Path(proj)):
-                return self._err(400, f"{proj} isn't a Godot project (no project.godot in it).")
-            w = store.create(str(b.get("name") or "New world"), proj)
-            return self._json(world_bundle(w["id"]))
-        if parts == ["godot-projects"]:
-            base = Path.home() / "Desktop" / "Projects"
-            return self._json({"projects": godot.find_godot_projects(base)})
-        if len(parts) >= 2 and parts[0] == "worlds":
-            wid = parts[1]
-            if not store.ID_RE.match(wid):
-                return self._err(400, "bad world id")
-            if not store.exists(wid):
-                return self._err(404, "no such world")
-            rest = parts[2:]
-            if not rest:
-                if method == "GET":
-                    return self._json(world_bundle(wid))
-                if method == "PUT":
-                    b = self._jbody()
-                    w = b.get("world") or {}
-                    w["id"] = wid
-                    proj = (w.get("godot") or "").strip()
-                    if proj and not godot.is_godot_project(Path(proj)):
-                        return self._err(400, f"{proj} isn't a Godot project.")
-                    with _wlock(wid):
-                        saved = store.save(w, b.get("rev"))
-                    return self._json({"rev": saved["rev"], "updated": saved["updated"]})
-                if method == "DELETE":
-                    trash = store.remove(wid)
-                    return self._json({"ok": True, "trash": str(trash)})
-            if rest == ["build"] and method == "POST":
-                b = self._jbody()
-                bundle = world_bundle(wid)
-                if not bundle["game"]:
-                    return self._err(400, "This world isn't linked to a Godot project.")
-                report = apply.build(Path(bundle["world"]["godot"]), bundle["world"], bundle["game"],
-                                     list(b.get("ids") or []), dict(b.get("modes") or {}))
-                out = world_bundle(wid)
-                out["report"] = report
-                return self._json(out)
-            if rest == ["undo-build"] and method == "POST":
-                res = apply.undo_last(wid)
-                out = world_bundle(wid)
-                out["undone"] = res
-                return self._json(out)
-            if rest == ["smoke"]:
-                w = store.load(wid)
-                if method == "POST":
-                    if not w.get("godot"):
-                        return self._err(400, "This world isn't linked to a Godot project.")
-                    return self._json(smoke.start(Path(w["godot"])))
-                return self._json(smoke.status())
-            if len(rest) >= 2 and rest[0] == "pictures":
-                return self._picture(method, wid, rest[1:], q)
-        return self._err(404, "no such API")
+        return api(self, method, path, q)
 
-    def _picture(self, method: str, wid: str, rest: list[str], q: dict):
-        sid = rest[0]
-        if not re.match(r"^[A-Za-z0-9_]+$", sid):
-            return self._err(400, "bad scene id")
-        up = store.files_dir(wid) / f"{sid}.jpg"
-        if method == "PUT":
-            data = pictures.normalize_upload(self._body())
-            up.parent.mkdir(parents=True, exist_ok=True)
-            up.write_bytes(data)
-            return self._json({"ok": True})
-        if method == "DELETE":
-            up.unlink(missing_ok=True)
-            return self._json({"ok": True})
-        phase = re.sub(r"\.jpg$", "", rest[1]) if len(rest) > 1 else "midnight"
-        width = int((q.get("w") or ["0"])[0] or 0)
-        data = None
-        w = store.load(wid)
-        if w.get("godot") and godot.is_godot_project(Path(w["godot"])) and not up.exists():
-            proj = Path(w["godot"])
-            res = (godot.router_scenes(proj) or {}).get(sid) or f"res://scenes/{sid}/{sid}.tscn"
-            f = godot.res_to_path(proj, res)
-            if f.exists():
-                from .tscn import Scene
-                kind = godot.scene_kind(proj, Scene.load(f))
-                data = pictures.render(proj, f, kind, phase)
-        if data is None and up.exists():
-            data = up.read_bytes()
-        if data is None:
-            return self._err(404, "no picture")
-        if width:
-            data = pictures.thumbnail(data, max(64, min(width, 2000)))
-        return self._send(200, data, "image/jpeg", {"Cache-Control": "no-cache"})
+
+def api(h, method: str, path: str, q: dict):
+    """The JSON API, for any request object h with _json, _err, _send, _body and _jbody (this server's
+    Handler, or a host app's)."""
+    parts = [p for p in path.split("/") if p]
+    if parts == ["worlds"] and method == "GET":
+        return h._json({"worlds": store.list_worlds()})
+    if parts == ["worlds"] and method == "POST":
+        b = h._jbody()
+        proj = (b.get("godot") or "").strip()
+        if proj and not godot.is_godot_project(Path(proj)):
+            return h._err(400, f"{proj} isn't a Godot project (no project.godot in it).")
+        w = store.create(str(b.get("name") or "New world"), proj)
+        return h._json(world_bundle(w["id"]))
+    if parts == ["godot-projects"]:
+        base = Path.home() / "Desktop" / "Projects"
+        return h._json({"projects": godot.find_godot_projects(base)})
+    if len(parts) >= 2 and parts[0] == "worlds":
+        wid = parts[1]
+        if not store.ID_RE.match(wid):
+            return h._err(400, "bad world id")
+        if not store.exists(wid):
+            return h._err(404, "no such world")
+        rest = parts[2:]
+        if not rest:
+            if method == "GET":
+                return h._json(world_bundle(wid))
+            if method == "PUT":
+                b = h._jbody()
+                w = b.get("world") or {}
+                w["id"] = wid
+                proj = (w.get("godot") or "").strip()
+                if proj and not godot.is_godot_project(Path(proj)):
+                    return h._err(400, f"{proj} isn't a Godot project.")
+                with _wlock(wid):
+                    saved = store.save(w, b.get("rev"))
+                return h._json({"rev": saved["rev"], "updated": saved["updated"]})
+            if method == "DELETE":
+                trash = store.remove(wid)
+                return h._json({"ok": True, "trash": str(trash)})
+        if rest == ["build"] and method == "POST":
+            b = h._jbody()
+            bundle = world_bundle(wid)
+            if not bundle["game"]:
+                return h._err(400, "This world isn't linked to a Godot project.")
+            report = apply.build(Path(bundle["world"]["godot"]), bundle["world"], bundle["game"],
+                                 list(b.get("ids") or []), dict(b.get("modes") or {}))
+            out = world_bundle(wid)
+            out["report"] = report
+            return h._json(out)
+        if rest == ["undo-build"] and method == "POST":
+            res = apply.undo_last(wid)
+            out = world_bundle(wid)
+            out["undone"] = res
+            return h._json(out)
+        if rest == ["smoke"]:
+            w = store.load(wid)
+            if method == "POST":
+                if not w.get("godot"):
+                    return h._err(400, "This world isn't linked to a Godot project.")
+                return h._json(smoke.start(Path(w["godot"])))
+            return h._json(smoke.status())
+        if len(rest) >= 2 and rest[0] == "pictures":
+            return picture(h, method, wid, rest[1:], q)
+    return h._err(404, "no such API")
+
+def picture(h, method: str, wid: str, rest: list[str], q: dict):
+    sid = rest[0]
+    if not re.match(r"^[A-Za-z0-9_]+$", sid):
+        return h._err(400, "bad scene id")
+    up = store.files_dir(wid) / f"{sid}.jpg"
+    if method == "PUT":
+        data = pictures.normalize_upload(h._body())
+        up.parent.mkdir(parents=True, exist_ok=True)
+        up.write_bytes(data)
+        return h._json({"ok": True})
+    if method == "DELETE":
+        up.unlink(missing_ok=True)
+        return h._json({"ok": True})
+    phase = re.sub(r"\.jpg$", "", rest[1]) if len(rest) > 1 else "midnight"
+    width = int((q.get("w") or ["0"])[0] or 0)
+    data = None
+    w = store.load(wid)
+    if w.get("godot") and godot.is_godot_project(Path(w["godot"])) and not up.exists():
+        proj = Path(w["godot"])
+        res = (godot.router_scenes(proj) or {}).get(sid) or f"res://scenes/{sid}/{sid}.tscn"
+        f = godot.res_to_path(proj, res)
+        if f.exists():
+            from .tscn import Scene
+            kind = godot.scene_kind(proj, Scene.load(f))
+            data = pictures.render(proj, f, kind, phase)
+    if data is None and up.exists():
+        data = up.read_bytes()
+    if data is None:
+        return h._err(404, "no picture")
+    if width:
+        data = pictures.thumbnail(data, max(64, min(width, 2000)))
+    return h._send(200, data, "image/jpeg", {"Cache-Control": "no-cache"})
+
+
+
+
+def handle(h, method: str, path: str, q: dict):
+    """api(), with its errors turned into JSON answers the page understands."""
+    try:
+        return api(h, method, path, q)
+    except store.Conflict as c:
+        return h._json({"error": "conflict", "world": c.world}, 409)
+    except apply.BuildError as e:
+        return h._err(400, str(e))
+    except (ValueError, KeyError) as e:
+        return h._err(400, str(e))
+    except FileNotFoundError as e:
+        return h._err(404, str(e))
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        return h._err(500, f"{type(e).__name__}: {e}")
 
 
 def serve(port: int = PORT, open_browser: bool = True) -> None:

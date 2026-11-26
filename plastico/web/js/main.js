@@ -4,6 +4,9 @@ import * as model from './model.js';
 
 const { KINDS, STATE_LABEL, firstName } = model;
 const $ = (s) => document.querySelector(s);
+// Inside Cassetto (the suite), the project's world and its puzzle charts come through the shell.
+const CS = window.cassetto && window.cassetto.embedded ? window.cassetto : null;
+if (CS) document.documentElement.classList.add('in-cassetto');
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function btn(label, cls, onClick, title) { const b = el('button', cls || 'btn', label); b.type = 'button'; if (onClick) b.addEventListener('click', onClick); if (title) b.title = title; return b; }
 function svgIcon(d, opts = '') { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 16 16'); s.innerHTML = `<path d="${d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" ${opts}/>`; return s; }
@@ -64,21 +67,32 @@ function setStatus(s, text) {
   st.dataset.s = s === 'saved' ? 'ok' : s === 'err' ? 'err' : 'busy';
   $('#status-text').textContent = text || { saved: 'Saved', busy: 'Saving', dirty: 'Saving', err: 'Not saved', loading: 'Loading' }[s] || s;
   st.title = s === 'err' ? 'Couldn’t save: is Plastico still running? It will try again.' : '';
+  if (CS) CS.status(s === 'saved' ? 'saved' : s === 'err' ? 'err' : 'busy', $('#status-text').textContent);
 }
 
 /* ------------------------------------------------------------------ view */
-const view = new View3D($('#stage'), $('#labels'), {
-  onSelect: (sel) => pick(sel),
-  onEmptyClick: () => { if (S.route || S.play) return; select(null); },
-  onAddAt: (x, z) => { if (S.route || S.play) return; addScene(lastKind(), x, z, 0); },
-  onMoveScene: (id, x, z, floor) => edit((w) => { const s = w.scenes.find((q) => q.id === id); if (s) { s.x = round(x); s.z = round(z); if (floor != null) s.floor = floor; } }, { insp: floor != null && floor !== (S.world.scenes.find((q) => q.id === id) || {}).floor }),
-  onFloorHint: (f) => toast(f === 0 ? 'Street level' : f > 0 ? `Floor ${f}` : `${-f} below the street`),
-  onConnect: (a, b) => connect(a, b),
-  onConnectNew: (a, x, z) => connectNew(a, x, z),
-  onOpen: (id) => view.focus(id),
-  canDrag: () => !S.route && !S.play,
-  canConnect: () => !S.route && !S.play,
-});
+let view;
+try {
+  view = new View3D($('#stage'), $('#labels'), {
+    onSelect: (sel) => pick(sel),
+    onEmptyClick: () => { if (S.route || S.play) return; select(null); },
+    onAddAt: (x, z) => { if (S.route || S.play) return; addScene(lastKind(), x, z, 0); },
+    onMoveScene: (id, x, z, floor) => edit((w) => { const s = w.scenes.find((q) => q.id === id); if (s) { s.x = round(x); s.z = round(z); if (floor != null) s.floor = floor; } }, { insp: floor != null && floor !== (S.world.scenes.find((q) => q.id === id) || {}).floor }),
+    onFloorHint: (f) => toast(f === 0 ? 'Street level' : f > 0 ? `Floor ${f}` : `${-f} below the street`),
+    onConnect: (a, b) => connect(a, b),
+    onConnectNew: (a, x, z) => connectNew(a, x, z),
+    onOpen: (id) => view.focus(id),
+    canDrag: () => !S.route && !S.play,
+    canConnect: () => !S.route && !S.play,
+  });
+} catch (e) {
+  // no WebGL here (no usable graphics driver, or it is switched off): say so instead of hanging on "Loading"
+  const msg = 'Plastico can’t draw its 3D view in this window: WebGL isn’t available (' + e.message + '). Check the graphics driver. If only Cassetto’s own window has the problem, start it in Chrome instead: cassetto --window chrome (or set CASSETTO_WINDOW=chrome).';
+  $('#loading').textContent = msg;
+  if (CS) CS.error(msg);
+  throw e;
+}
+
 const round = (v) => Math.round(v * 100) / 100;
 
 function derive() {
@@ -613,7 +627,14 @@ function worldInspector(box) {
   }
   sec.append(ul); box.append(sec);
   const ch = section('Puzzle charts');
-  if (b.charts && b.charts.charts) {
+  if (CS) {
+    const c = (b.charts && b.charts.charts) || [];
+    const n = c.reduce((k, x) => k + x.nodes.length, 0);
+    const placed = c.reduce((k, x) => k + x.nodes.filter((q) => q.scene).length, 0);
+    ch.append(el('p', 'note', c.length ? `${c.length} chart${c.length === 1 ? '' : 's'}, ${n} steps (${placed} placed in a scene), live from Puzzle Charts in this project. Select a scene to see its steps; locks find their keys in them.`
+      : 'No puzzle charts in this project yet. Steps you place in a scene show up on its panel, and locks find their keys in them.'));
+    ch.append(btn('Open Puzzle Charts', 'btn small', () => CS.navigate('puzzles')));
+  } else if (b.charts && b.charts.charts) {
     const c = b.charts;
     const n = c.charts.reduce((k, x) => k + x.nodes.length, 0);
     const placed = c.charts.reduce((k, x) => k + x.nodes.filter((q) => q.scene).length, 0);
@@ -765,7 +786,7 @@ function sceneInspector(box, s) {
   }
   // puzzle steps
   const steps = M.steps.get(s.id) || [];
-  if (steps.length || (S.bundle.charts && S.bundle.charts.charts)) {
+  if (steps.length || (S.bundle.charts && S.bundle.charts.charts) || CS) {
     const sec = section('Puzzle steps here', steps.length);
     if (!steps.length) sec.append(el('p', 'none', 'No puzzle chart puts a step here.'));
     const list = el('ul', 'steps');
@@ -776,9 +797,16 @@ function sceneInspector(box, s) {
       const t = el('span', '', node.title || 'Untitled step');
       const extra = [node.who && firstName((M.people.get(node.who) || {}).name) || node.who, node.when].filter(Boolean).join(' · ');
       li.append(t, el('small', '', extra || (node.status === 'built' ? 'in game' : '')));
+      if (CS) {
+        li.classList.add('link'); li.tabIndex = 0; li.title = `Open “${node.title || 'Untitled step'}” in Puzzle Charts`;
+        const go = () => CS.navigate('puzzles', { chart: chart.id, step: node.id });
+        li.addEventListener('click', go); li.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+      }
       list.append(li);
     }
-    sec.append(list); box.append(sec);
+    sec.append(list);
+    if (CS && s.state !== 'delete') sec.append(btn('Add a puzzle step here', 'btn small', () => CS.navigate('puzzles', { create: { scene: s.id } }), 'Opens Puzzle Charts with a new step placed in this scene'));
+    box.append(sec);
   }
   const notes = el('textarea'); notes.id = 'f-notes'; notes.value = s.notes; notes.placeholder = 'What happens here, what it is for, what is still open…';
   notes.addEventListener('input', () => edit((x) => { ws().notes = notes.value; }, { coalesce: 'notes:' + s.id, insp: false, view: false }));
@@ -800,6 +828,11 @@ function renameScene(from, to, auto) {
     for (const a of x.acts) if (a.start === from) a.start = to;
   });
   renderInspector(); refreshHighlight();
+  if (CS) {
+    S.renames = (S.renames || Promise.resolve()).then(() => CS.call('puzzles.rename_scene', from, to)).then((r) => {
+      if (r && r.steps) toast(`Moved ${r.steps} puzzle step${r.steps === 1 ? '' : 's'} to the scene’s new id (${to}).`);
+    }, (e) => toast(`The puzzle steps in ${from} still point at it: ${e.message}`));
+  }
 }
 
 function chipsToggle(all, on, change) {
@@ -1096,7 +1129,7 @@ async function openSettings() {
   openModal((box) => {
     modalHead(box, 'World settings', 'Saved when you press Save; Undo goes back.');
     const body = el('div', 'modal-body'); box.append(body);
-    const name = el('input'); name.value = w.name; body.append(field('Name', name));
+    const name = el('input'); name.value = w.name; if (!CS) body.append(field('Name', name));
     const proj = el('select');
     { const o = el('option', '', 'Not linked: a plan only'); o.value = ''; proj.append(o); }
     for (const p of projects) { const o = el('option', '', `${p.name} (${p.path.replace(/^\/home\/[^/]+/, '~')})`); o.value = p.path; proj.append(o); }
@@ -1164,7 +1197,7 @@ async function openSettings() {
     };
     drawPeople(); body.append(pplF);
     const foot = el('div', 'modal-foot'); const l = el('div', 'l'), r = el('div', 'r');
-    l.append(armed('Delete this world', 'Click again: it goes to Plastico’s trash', async () => {
+    if (!CS) l.append(armed('Delete this world', 'Click again: it goes to Plastico’s trash', async () => {
       await api('DELETE', `/api/worlds/${S.wid}`); closeModal(); lsSet('plastico:last', ''); await boot();
     }));
     r.append(btn('Cancel', 'btn', closeModal), btn('Save', 'btn primary', async () => {
@@ -1240,13 +1273,14 @@ async function refresh(say) {
   if (S.dirty || S.saving) await flushSave();
   try {
     const b = await api('GET', `/api/worlds/${S.wid}`);
-    const before = JSON.stringify([S.bundle.game && S.bundle.game.exits, S.bundle.game && Object.keys(S.bundle.game.scenes), S.rev]);
-    const after = JSON.stringify([b.game && b.game.exits, b.game && Object.keys(b.game.scenes), b.world.rev]);
+    const before = JSON.stringify([S.bundle.game && S.bundle.game.exits, S.bundle.game && Object.keys(S.bundle.game.scenes), S.rev, chartKey(S.bundle.charts)]);
+    const after = JSON.stringify([b.game && b.game.exits, b.game && Object.keys(b.game.scenes), b.world.rev, chartKey(b.charts)]);
     if (before !== after || say) { const sel = S.sel; applyBundle(b, {}); S.sel = sel; derive(); renderInspector(); refreshHighlight(); }
     else { S.bundle.changes = b.changes; S.bundle.last_build = b.last_build; S.bundle.game = b.game; }
     if (say) toast(b.game ? `Read ${b.game.name} again: ${Object.keys(b.game.scenes).length} scenes, ${b.game.exits.filter((e) => e.to).length} exits.` : 'Reloaded.');
   } catch (e) { if (say) toast(e.message); }
 }
+function chartKey(c) { return c && c.charts ? c.charts.map((x) => [x.id, x.name, x.nodes, x.edges]) : null; }
 function renderAll() { renderHeader(); renderSide(); renderPhases(); renderView(); renderInspector(); renderBanner(); }
 
 async function boot() {
@@ -1338,6 +1372,21 @@ document.addEventListener('keydown', (e) => {
   else if (/^[1-9]$/.test(k) && S.M.phases[+k - 1]) setPhase(S.M.phases[+k - 1]);
 });
 window.addEventListener('focus', () => { if ($('#modal').hidden && !S.dirty && !S.saving) refresh(false); });
+if (CS) {
+  const quiet = () => $('#modal').hidden && !S.dirty && !S.saving;
+  CS.on('puzzles.changed', () => { if (quiet()) refresh(false); });
+  CS.on('world.changed', (ev) => { if (ev.source !== 'plastico' && quiet()) refresh(false); });
+  CS.on('activate', () => { if (quiet()) refresh(false); });
+  CS.register({
+    flush: () => flushSave(),
+    navigate: async (t) => {
+      if (!t || !t.scene) return;
+      if (!S.world) await new Promise((r) => setTimeout(r, 300));
+      if (S.M && S.M.scenes.has(t.scene)) { select({ type: 'scene', id: t.scene }); view.focus(t.scene); }
+      else toast(`There’s no scene ${t.scene} in this world.`);
+    },
+  });
+}
 let camTimer = 0;
 view.controls.addEventListener('change', () => {
   clearTimeout(camTimer);

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Cassetto
+GenericName=Game design suite
+Comment=Design the world and the puzzles of a narrative game
+Exec=@EXEC@ %f
+Icon=cassetto
+Terminal=false
+Categories=Development;Graphics;
+StartupWMClass=Cassetto

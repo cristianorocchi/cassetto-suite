@@ -88,6 +88,13 @@ project's own `tests/smoke_test.tscn` headless and keeps the player's save slot.
 on new stand-in scenes, which have no art for each time of day yet, and on checks written for ways
 you changed.
 
+## Inside Cassetto
+
+Plastico is also a module of [Cassetto](../README.md), the suite: there a project holds one world, the
+puzzle charts are read live from the Puzzle Charts module (no sync needed), each scene's panel opens its
+steps in Puzzle Charts or adds a new one there, and renaming a scene moves the steps placed in it. On
+its own, as described here, Plastico works as before.
+
 ## Puzzle charts
 
 Each scene's panel lists the puzzle steps that happen there, from the Puzzle Charts page. A lock
