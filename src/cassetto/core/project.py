@@ -52,6 +52,8 @@ def _pid_alive(pid: int) -> bool:
     """True if `pid` is a running Cassetto (a lock left by one that crashed doesn't count)."""
     if pid <= 0:
         return False
+    if os.name == "nt":
+        return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -63,6 +65,33 @@ def _pid_alive(pid: int) -> bool:
     except OSError:
         return True      # no /proc (not Linux): trust the pid
     return "cassetto" in cmd
+
+
+def _pid_alive_windows(pid: int) -> bool:
+    """Windows has no os.kill(pid, 0): it sends Ctrl+C there. Ask the process itself, and count it only
+    if it is a Python or a packaged Cassetto (a pid left by a crash may belong to something else now)."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    k32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    h = k32.OpenProcess(0x1000, False, pid)     # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return ctypes.get_last_error() == 5     # access denied: it runs, as someone else; anything else: gone
+    try:
+        code = wintypes.DWORD()
+        if not k32.GetExitCodeProcess(h, ctypes.byref(code)) or code.value != 259:     # STILL_ACTIVE
+            return False
+        buf, size = ctypes.create_unicode_buffer(1024), wintypes.DWORD(1024)
+        if not k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+            return True      # can't tell what it is: trust the pid
+        exe = Path(buf.value).name.lower()
+        return "python" in exe or "cassetto" in exe
+    finally:
+        k32.CloseHandle(h)
 
 
 class Project:

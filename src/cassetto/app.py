@@ -250,7 +250,9 @@ def run(project: str | None = None, window: str = "auto", port: int = PORT, reop
     for sig in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGHUP", None)):
         if sig is not None:
             signal.signal(sig, stop)
-    core.on_quit = lambda: os.kill(os.getpid(), signal.SIGTERM)    # no window of its own: just stop
+    # no window of its own: just stop. Not through os.kill(SIGTERM): on Windows that ends the process at
+    # once, and the project would stay locked.
+    core.on_quit = stop
     target = project
     if not target and reopen_last:
         last = next((r for r in projects.recent() if r.get("exists")), None)
