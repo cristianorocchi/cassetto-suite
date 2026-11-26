@@ -338,3 +338,52 @@ def test_a_new_chart_from_a_scene_is_the_one_that_opens(server, browser, home):
         assert len(cid) == 1 and cid[0] != old
     assert not pz.is_visible("text=That chart isn’t in this project any more")
     assert not [e for e in errors if "favicon" not in e], errors
+
+
+def test_add_scene_inside_lists_only_the_act_on_screen(server, browser, home):
+    core, srv = server()
+    page, errors = open_shell(browser, srv.url)
+    page.wait_for_selector("#welcome:not([hidden])")
+    page.click("text=New project")
+    page.fill(".modal-box input >> nth=0", "Two Acts")
+    page.click(".modal-box >> text=Create")
+    page.wait_for_selector("#welcome", state="hidden")
+    project = home / "projects" / "Two Acts"
+    pl = frame(page, "plastico")
+    pl.wait_for_selector("#empty:not([hidden])")
+    add_scene(pl, "Harbour")
+    pl.press("#f-name", "Escape")
+    add_scene(pl, "Lighthouse")
+    pl.press("#f-name", "Escape")
+    add_scene(pl, "Lamp room", inside="lighthouse")
+    wait_saved(pl)
+    page.close()
+
+    # the lighthouse (and the lamp room inside it) move to a second act
+    core.close_project()
+    w = world_on_disk(project)
+    w["acts"].append({"id": "2", "name": "", "start": ""})
+    for s in w["scenes"]:
+        if s["id"] in ("lighthouse", "lamp_room"):
+            s["act"] = "2"
+    (project / "plastico" / "world.json").write_text(json.dumps(w))
+    core.open_project(project)
+
+    page, errors = open_shell(browser, srv.url)
+    pl = frame(page, "plastico")
+    pl.wait_for_selector("#acts .filter >> text=Act 2")
+
+    def parents():
+        pl.click("#btn-add")
+        pl.wait_for_selector("#f-new-parent")
+        ids = pl.eval_on_selector_all("#f-new-parent option", "os => os.map(o => o.value)")
+        pl.click(".modal-foot >> text=Cancel")
+        return ids
+
+    pl.click("#acts .filter >> text=Act 2")
+    assert parents() == ["lamp_room", "lighthouse"]
+    pl.click("#acts .filter >> text=Act 1")
+    assert parents() == ["harbour"]
+    pl.click("#acts .filter >> text=Every act")
+    assert sorted(parents()) == ["harbour", "lamp_room", "lighthouse"]
+    assert not errors, errors

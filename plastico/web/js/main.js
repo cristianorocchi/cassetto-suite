@@ -313,12 +313,16 @@ function openAddScene(at = {}) {
     for (const a of w.acts) { const o = el('option', '', `Act ${a.id}${a.name ? ' · ' + a.name : ''}`); o.value = a.id; actSel.append(o); }
     actSel.value = S.ui.act !== 'all' ? S.ui.act : selScene ? selScene.act : w.acts[0].id;
     const parSel = el('select'); parSel.id = 'f-new-parent';
-    const live = w.scenes.filter((q) => !q.delete).sort((a, b) => sceneLabel(a).localeCompare(sceneLabel(b)));
+    // Only the scenes of the act on screen (all of them when every act is shown); a scene inside another
+    // is in its outermost parent's act.
+    const actOf = (q) => (model.ancestorsOf(w, q.id).pop() || q).act;
+    const live = w.scenes.filter((q) => !q.delete && (S.ui.act === 'all' || actOf(q) === S.ui.act))
+      .sort((a, b) => sceneLabel(a).localeCompare(sceneLabel(b)));
     for (const q of live) { const o = el('option', '', `${sceneLabel(q)}  (${containerText(q.act, q.parent) || 'act ' + q.act})`); o.value = q.id; parSel.append(o); }
-    if (selScene) parSel.value = selScene.id;
+    if (selScene && live.includes(selScene)) parSel.value = selScene.id;
     const rAct = choice('act', 'In an act', actSel);
     const rPar = choice('parent', 'Inside a scene', parSel);
-    if (!live.length) { rPar.disabled = true; parSel.disabled = true; parSel.append(el('option', '', 'No scenes yet')); }
+    if (!live.length) { rPar.disabled = true; parSel.disabled = true; parSel.append(el('option', '', S.ui.act === 'all' ? 'No scenes yet' : 'No scenes in this act yet')); }
     rAct.checked = true;
     body.append(field('Where it goes', where));
     const preview = el('div', 'alert info'); preview.id = 'f-new-where'; body.append(preview);
