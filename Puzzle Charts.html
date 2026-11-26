@@ -1,0 +1,1807 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Puzzle Charts</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  /* Layout: a workbench. Chart list | squared chart paper | inspector.
+     Hue is spent only on the kinds of step; the interface itself stays ink on paper. */
+  --paper:#E8EDF0;
+  --surface:#FAFBFC;
+  --surface-2:#EFF3F5;
+  --ink:#14202A;
+  --ink-2:#3A4954;
+  --muted:#5D6D79;
+  --line:#C6D0D7;
+  --line-2:#D9E1E6;
+  --grid:rgba(36,72,100,.07);
+  --grid-major:rgba(36,72,100,.13);
+  --edge:#7C8B96;
+  --danger:#B42318;
+  --danger-bg:#FBEAE8;
+  --scrim:rgba(14,22,28,.38);
+  --shadow:0 1px 2px rgba(20,32,42,.06),0 8px 24px rgba(20,32,42,.10);
+  --k-setup:#15766A;
+  --k-subgoal:#14202A;
+  --k-goal:#14202A;
+  --k-action:#2A5E94;
+  --k-item:#8A5E0E;
+  --k-combo:#6A49A0;
+  --k-phase:#7B5C45;
+  --goal-bg:#14202A;
+  --goal-fg:#F3F6F8;
+  --f-display:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;
+  --f-ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0D141A;--surface:#151E26;--surface-2:#1B2630;--ink:#E2E9EE;--ink-2:#BCC8D0;--muted:#8C9CA8;
+    --line:#2D3B46;--line-2:#22303A;--grid:rgba(150,190,220,.05);--grid-major:rgba(150,190,220,.10);--edge:#6F818E;
+    --danger:#F4806F;--danger-bg:#3A1A16;--scrim:rgba(0,0,0,.55);--shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.4);
+    --k-setup:#58C4B2;--k-subgoal:#E2E9EE;--k-goal:#E2E9EE;--k-action:#7BAEE8;--k-item:#DDAE52;--k-combo:#B89DEB;--k-phase:#CBAA8E;
+    --goal-bg:#E2E9EE;--goal-fg:#0D141A;color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0D141A;--surface:#151E26;--surface-2:#1B2630;--ink:#E2E9EE;--ink-2:#BCC8D0;--muted:#8C9CA8;
+  --line:#2D3B46;--line-2:#22303A;--grid:rgba(150,190,220,.05);--grid-major:rgba(150,190,220,.10);--edge:#6F818E;
+  --danger:#F4806F;--danger-bg:#3A1A16;--scrim:rgba(0,0,0,.55);--shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.4);
+  --k-setup:#58C4B2;--k-subgoal:#E2E9EE;--k-goal:#E2E9EE;--k-action:#7BAEE8;--k-item:#DDAE52;--k-combo:#B89DEB;--k-phase:#CBAA8E;
+  --goal-bg:#E2E9EE;--goal-fg:#0D141A;color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{height:100%}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font:400 14px/1.45 var(--f-ui);overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+.app{height:100%;display:grid;gap:12px;
+  grid-template-columns:248px minmax(0,1fr) 320px;grid-template-rows:auto minmax(0,1fr);
+  grid-template-areas:"head head head" "side stage insp";
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 12px}
+
+/* header */
+.head{grid-area:head;display:flex;align-items:center;gap:10px;padding-block:10px 0;min-width:0}
+.brand{display:flex;flex-direction:column;line-height:1.05;flex:none}
+.eyebrow{font:600 10px/1 var(--f-ui);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.brand-name{font:700 19px/1.15 var(--f-display);letter-spacing:-.01em;margin-top:3px}
+.cur-name{min-width:0;flex:1;font:500 14px/1.2 var(--f-ui);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:12px;border-left:1px solid var(--line)}
+.head-tools{display:flex;align-items:center;gap:6px;flex:none}
+.btn{height:32px;padding:0 11px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 13px/1 var(--f-ui);display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--surface-2)}
+.btn:disabled{opacity:.42;cursor:default}
+.btn svg{width:16px;height:16px;flex:none}
+.btn.icon{width:32px;padding:0;justify-content:center}
+.btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.btn.primary:hover:not(:disabled){background:var(--ink-2)}
+.btn[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.btn.danger.armed{background:var(--danger);color:var(--surface);border-color:var(--danger)}
+.btn.small{height:28px;padding:0 9px;font-size:12px}
+.status{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 6px 0 8px;border:0;background:none;font:500 12px/1 var(--f-ui);color:var(--muted);cursor:pointer;border-radius:6px}
+.status:hover{background:var(--surface-2)}
+.status .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+.status[data-s="busy"] .dot{background:transparent;border:1.5px solid var(--muted)}
+.status[data-s="err"],.status[data-s="off"]{color:var(--danger)}
+.status[data-s="err"] .dot,.status[data-s="off"] .dot{background:var(--danger)}
+.menu-wrap{position:relative}
+.menu{position:absolute;top:calc(100% + 6px);left:0;z-index:40;min-width:240px;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);padding:5px;display:flex;flex-direction:column}
+.menu.right{left:auto;right:0}
+.mi{display:flex;align-items:flex-start;gap:9px;width:100%;text-align:left;padding:8px 9px;border:0;border-radius:5px;background:none;cursor:pointer;font:500 13px/1.3 var(--f-ui)}
+.mi:hover,.mi:focus-visible{background:var(--surface-2)}
+.mi .g{margin-top:2px}
+.mi small{display:block;font-weight:400;font-size:12px;color:var(--muted);margin-top:1px}
+.mi-sep{height:1px;background:var(--line-2);margin:4px 2px}
+.only-drawer,.only-sheet,.only-narrow{display:none}
+
+/* panels */
+.panel{background:var(--surface);border:1px solid var(--line-2);border-radius:10px;min-height:0;overflow:auto}
+.side{grid-area:side;display:flex;flex-direction:column;padding:14px 12px 12px}
+.side-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 10px}
+h2,h3{margin:0;text-wrap:balance}
+.side-head h2{font:700 15px/1.2 var(--f-display)}
+.chart-list{display:flex;flex-direction:column;gap:14px;padding-bottom:14px;border-bottom:1px solid var(--line-2)}
+.act-head{display:flex;flex-direction:column;gap:1px;padding:0 4px 5px}
+.act-num{font:600 10px/1.2 var(--f-ui);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.act-title{font:italic 400 12px/1.3 var(--f-ui);color:var(--muted)}
+.chart-item{display:flex;flex-direction:column;gap:1px;width:100%;text-align:left;padding:7px 9px;border:1px solid transparent;border-radius:6px;background:none;cursor:pointer}
+.chart-item:hover{background:var(--surface-2)}
+.chart-item.on{background:var(--surface-2);border-color:var(--line)}
+.ci-name{font:500 13px/1.3 var(--f-ui);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ci-meta{font:400 12px/1.3 var(--f-ui);color:var(--muted);font-variant-numeric:tabular-nums}
+.ci-meta .warn{color:var(--danger)}
+.side-empty{margin:0;padding:4px;color:var(--muted);font-size:13px}
+.legend{padding:14px 4px 4px}
+.legend h3,.sec h3{font:600 10px/1.2 var(--f-ui);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.legend ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+.legend li{display:grid;grid-template-columns:14px 1fr;gap:7px;align-items:start;font-size:12px;line-height:1.35;color:var(--muted)}
+.legend li b{display:block;color:var(--ink);font-weight:600;font-size:12.5px}
+.legend .g{margin-top:2px}
+.side-note{margin:auto 0 0;padding:14px 4px 0;font-size:12px;line-height:1.45;color:var(--muted)}
+.g{width:12px;height:12px;flex:none;display:inline-block;vertical-align:-1px}
+.g path{fill:currentColor}
+
+/* stage */
+.stage{grid-area:stage;position:relative;overflow:hidden;border-radius:10px;border:1px solid var(--line-2);touch-action:none;user-select:none;-webkit-user-select:none;cursor:default;
+  background-color:var(--paper);
+  background-image:linear-gradient(var(--grid-major) 1px,transparent 1px),linear-gradient(90deg,var(--grid-major) 1px,transparent 1px),linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px)}
+.stage.panning{cursor:grabbing}
+.world{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0}
+.edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+.edge{fill:none;stroke:var(--edge);stroke-width:1.6}
+.edge.e-anc,.edge.e-desc,.edge.e-sel,.edge.e-done{stroke:var(--ink);stroke-width:2.2}
+.edge.e-desc{stroke-dasharray:6 4}
+.edge.e-sel{stroke-width:3}
+.edge.e-bad{stroke:var(--danger);stroke-dasharray:5 4;stroke-width:2}
+.edge.e-dim{opacity:.22}
+.edge-hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+.e-temp{fill:none;stroke:var(--ink);stroke-width:2;stroke-dasharray:5 4;pointer-events:none}
+.guide{stroke:var(--ink);stroke-width:1;stroke-dasharray:4 4;opacity:.55;fill:none;vector-effect:non-scaling-stroke}
+#edge-g{transition:opacity .16s ease}
+.stage.relayout #edge-g{opacity:.18}
+.mk-norm{fill:var(--edge)}.mk-strong{fill:var(--ink)}.mk-bad{fill:var(--danger)}
+#nodes{position:absolute;left:0;top:0}
+
+.node{position:absolute;width:196px;padding:8px 10px 10px;border-radius:8px;
+  background:color-mix(in srgb,var(--kc) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--kc) 42%,var(--line));
+  color:var(--ink);cursor:grab;touch-action:none;box-shadow:0 1px 0 color-mix(in srgb,var(--kc) 18%,transparent);transition:opacity .15s}
+.node:active{cursor:grabbing}
+.node.k-goal{background:var(--goal-bg);color:var(--goal-fg);border-color:var(--goal-bg)}
+.node.k-subgoal{background:var(--surface);border:2px solid var(--ink);padding:7px 9px 9px}
+.node.k-setup{border-style:dashed}
+.n-top{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
+.n-kind{display:inline-flex;align-items:center;gap:5px;font:600 10px/1 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:var(--kc)}
+.k-goal .n-kind{color:var(--goal-fg);opacity:.8}
+.k-goal .n-kind .g{color:var(--goal-fg)!important}
+.n-st{font:500 10px/1 var(--f-ui);padding:3px 5px;border-radius:4px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.n-st.st-written{border-color:var(--ink-2);color:var(--ink-2)}
+.n-st.st-built{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.k-goal .n-st{border-color:color-mix(in srgb,var(--goal-fg) 40%,transparent);color:var(--goal-fg)}
+.k-goal .n-st.st-built{background:var(--goal-fg);color:var(--goal-bg)}
+.n-title{font:600 13.5px/1.3 var(--f-ui);overflow-wrap:anywhere}
+.k-goal .n-title,.k-subgoal .n-title{font:700 15px/1.25 var(--f-display)}
+.n-meta{margin-top:4px;font:400 11.5px/1.35 var(--f-ui);color:var(--muted)}
+.k-goal .n-meta{color:color-mix(in srgb,var(--goal-fg) 70%,transparent)}
+.n-id{margin-top:4px;font:400 11px/1.3 var(--f-mono);color:var(--ink-2);overflow-wrap:anywhere}
+.k-goal .n-id{color:color-mix(in srgb,var(--goal-fg) 80%,transparent)}
+.port{position:absolute;left:50%;bottom:-8px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:var(--surface);border:2px solid var(--kc);cursor:crosshair;opacity:0;transition:opacity .12s}
+.port::after{content:"";position:absolute;inset:-9px}
+.node:hover .port,.node.sel .port{opacity:1}
+.node.sel{outline:2px solid var(--ink);outline-offset:3px;z-index:2}
+.node.dim{opacity:.32}
+.node.drop{outline:2px dashed var(--ink);outline-offset:3px}
+.node.bad{border:2px solid var(--danger)}
+.node.p-locked{opacity:.3;cursor:not-allowed}
+.node.p-avail{cursor:pointer;outline:2px dashed var(--ink);outline-offset:4px;animation:pulse 1.6s ease-in-out infinite}
+.node.p-done{cursor:default}
+.node .tick{position:absolute;top:-9px;right:-9px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--surface);display:grid;place-items:center;font:600 11px/1 var(--f-ui);font-variant-numeric:tabular-nums;box-shadow:0 0 0 2px var(--paper)}
+.node.shake{animation:shake .3s}
+@keyframes pulse{50%{outline-offset:7px}}
+@keyframes shake{25%{translate:-4px 0}75%{translate:4px 0}}
+@media (prefers-reduced-motion: reduce){.node.p-avail,.node.shake{animation:none}.node,.port,#edge-g{transition:none}}
+@media (hover:none){.node.sel .port{opacity:1}}
+
+.stage-ui{position:absolute;z-index:5}
+.zoom{right:12px;bottom:12px;display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px;box-shadow:var(--shadow)}
+.zoom .btn{height:28px;border:0}
+.zoom .btn.icon{width:28px}
+#z-level{min-width:42px;text-align:center;font:500 12px/1 var(--f-ui);color:var(--muted);font-variant-numeric:tabular-nums}
+.hint{left:12px;bottom:14px;font-size:12px;color:var(--muted);pointer-events:none;max-width:calc(100% - 220px)}
+.hint kbd{font:500 11px/1 var(--f-mono);padding:2px 4px;border:1px solid var(--line);border-radius:3px;background:var(--surface)}
+.banner{left:50%;top:12px;translate:-50% 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 24px);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 8px 7px 13px;box-shadow:var(--shadow);font-size:13px}
+.banner b{font-weight:600}
+.banner .msg{color:var(--muted)}
+.banner.solved{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.banner.solved .msg{color:inherit;opacity:.8}
+.banner.solved .btn{background:transparent;color:var(--surface);border-color:color-mix(in srgb,var(--surface) 40%,transparent)}
+.banner.stuck{border-color:var(--danger)}
+.banner.stuck b{color:var(--danger)}
+.empty{left:50%;top:50%;translate:-50% -50%;width:min(460px,calc(100% - 32px));background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:24px 24px 22px;box-shadow:var(--shadow)}
+.empty h2{font:700 22px/1.2 var(--f-display);letter-spacing:-.01em;margin-bottom:8px}
+.empty p{margin:0 0 10px;color:var(--ink-2);line-height:1.5}
+.empty p.note{font-size:12.5px;color:var(--muted)}
+.empty .row{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.empty.slim{top:40%;padding:16px 18px;width:min(380px,calc(100% - 32px))}
+.empty.slim p{margin:0}
+
+/* inspector */
+.insp{grid-area:insp;padding:14px 14px 18px;display:flex;flex-direction:column;gap:14px}
+.insp-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.insp-head h2{font:700 16px/1.2 var(--f-display);display:flex;align-items:center;gap:7px;min-width:0}
+.insp-head h2 .g{width:14px;height:14px}
+.sheet-close{display:none}
+.insp-empty{margin:0;color:var(--muted);font-size:13px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f > span,.f > label{font:600 10px/1.2 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.f input,.f select,.f textarea{width:100%;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 9px;font:400 13.5px/1.35 var(--f-ui);color:var(--ink)}
+.f textarea{resize:vertical;min-height:64px}
+.f input.mono{font-family:var(--f-mono);font-size:12.5px}
+.f input:focus,.f select:focus,.f textarea:focus{outline:2px solid var(--ink);outline-offset:-1px;border-color:var(--ink)}
+.f input:disabled,.f select:disabled,.f textarea:disabled{opacity:.6}
+.f .help{font:400 11.5px/1.35 var(--f-ui);letter-spacing:0;text-transform:none;color:var(--muted)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg{display:flex;flex-wrap:wrap;gap:4px}
+.seg button{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);cursor:pointer;font:500 12px/1 var(--f-ui)}
+.seg button:hover:not(:disabled){background:var(--surface-2)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.seg button[aria-pressed="true"] .g{color:var(--surface)!important}
+.seg button:disabled{opacity:.5;cursor:default}
+.sec{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--line-2)}
+.sec h3{margin:0;display:flex;justify-content:space-between}
+.sec h3 em{font-style:normal;letter-spacing:0;font-variant-numeric:tabular-nums}
+.links{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.links li{display:flex;align-items:center;gap:4px}
+.links .go{flex:1;min-width:0;display:flex;align-items:center;gap:7px;text-align:left;padding:5px 7px;border:1px solid var(--line-2);border-radius:6px;background:var(--surface);cursor:pointer;font-size:13px}
+.links .go:hover{background:var(--surface-2)}
+.links .go span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.links .x{width:26px;height:26px;flex:none;border:0;background:none;border-radius:5px;cursor:pointer;color:var(--muted);font-size:16px;line-height:1}
+.links .x:hover{background:var(--danger-bg);color:var(--danger)}
+.none{margin:0;font-size:12.5px;color:var(--muted)}
+.quick{display:flex;flex-wrap:wrap;gap:4px}
+.quick button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border:1px dashed var(--line);border-radius:6px;background:none;cursor:pointer;font:500 12px/1 var(--f-ui)}
+.quick button:hover{background:var(--surface-2);border-style:solid}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.stat{padding:8px 10px;border-radius:7px;background:var(--surface-2)}
+.stat b{display:block;font:700 20px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:11.5px;color:var(--muted)}
+.issues{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.issue{display:grid;grid-template-columns:14px 1fr;gap:8px;align-items:start;width:100%;text-align:left;padding:7px 9px;border-radius:6px;border:1px solid var(--line-2);background:var(--surface);cursor:pointer;font-size:12.5px;line-height:1.4}
+.issue:hover{background:var(--surface-2)}
+.issue svg{width:14px;height:14px;margin-top:1px}
+.issue.error{border-color:color-mix(in srgb,var(--danger) 45%,var(--line-2));background:var(--danger-bg)}
+.issue.error svg{color:var(--danger)}
+.issue.warn svg{color:var(--muted)}
+.issue b{font-weight:600}
+.ok{margin:0;font-size:12.5px;color:var(--muted)}
+.foot{display:flex;gap:6px;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--line-2)}
+.edge-desc{margin:0;font-size:13.5px;line-height:1.5}
+.edge-desc b{font-weight:600}
+.play-list{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:3px;font-size:13px}
+.play-list li::marker{font-variant-numeric:tabular-nums;color:var(--muted)}
+.play-list button{border:0;background:none;padding:0;cursor:pointer;text-align:left;font:inherit;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--line)}
+
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:25}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));translate:-50% 0;z-index:60;max-width:min(440px,calc(100% - 32px));background:var(--ink);color:var(--surface);padding:9px 14px;border-radius:8px;font-size:13px;box-shadow:var(--shadow)}
+.modal{position:fixed;inset:0;z-index:70;display:grid;place-items:center;background:var(--scrim);padding:16px}
+.modal-box{width:min(640px,100%);max-height:80%;display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+.modal-box h2{font:700 16px/1.2 var(--f-display)}
+.modal-box p{margin:0;font-size:13px;color:var(--muted)}
+.modal-box textarea{flex:1;min-height:240px;width:100%;resize:none;border:1px solid var(--line);border-radius:6px;padding:10px;background:var(--surface-2);font:400 12px/1.45 var(--f-mono);color:var(--ink)}
+.modal-box .row{display:flex;justify-content:flex-end}
+
+@media (max-width: 1180px){ .app{grid-template-columns:224px minmax(0,1fr) 296px} }
+@media (max-width: 999px){
+  .app{grid-template-columns:minmax(0,1fr) 296px;grid-template-areas:"head head" "stage insp"}
+  .only-drawer{display:inline-flex}
+  .side{grid-area:auto;position:fixed;top:0;bottom:0;left:0;z-index:30;width:min(300px,86vw);border-radius:0 10px 10px 0;
+    padding-top:calc(env(safe-area-inset-top,0px) + 14px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 12px);padding-left:max(12px,env(safe-area-inset-left,0px));
+    transform:translateX(-104%);transition:transform .2s ease;box-shadow:var(--shadow)}
+  .drawer-open .side{transform:none}
+  .brand .eyebrow{display:none}
+}
+@media (max-width: 719px){
+  .app{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "stage";gap:10px}
+  .brand{display:none}
+  .cur-name{border-left:0;padding-left:2px;font-size:15px;font-weight:600;color:var(--ink)}
+  .hide-narrow{display:none}
+  .only-sheet{display:inline-flex}
+  .only-narrow{display:flex}
+  .btn .lbl{display:none}
+  .btn:has(.lbl){width:32px;padding:0;justify-content:center}
+  .status #status-text{display:none}
+  .hint{display:none}
+  .insp{grid-area:auto;position:fixed;z-index:20;left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));
+    max-height:58%;box-shadow:var(--shadow);border-color:var(--line);display:none}
+  .sheet-open .insp{display:flex}
+  .sheet-close{display:inline-flex}
+  .zoom{bottom:12px}
+  .sheet-open .zoom{display:none}
+}
+@media (prefers-reduced-motion: reduce){.side{transition:none}}
+</style>
+
+<div class="app" id="app">
+  <header class="head">
+    <button class="btn icon only-drawer" id="btn-drawer" type="button" aria-label="Charts" title="Charts">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>
+    </button>
+    <div class="brand"><span class="brand-name">Puzzle charts</span></div>
+    <div class="cur-name" id="cur-name"></div>
+    <div class="head-tools">
+      <div class="menu-wrap">
+        <button class="btn" id="btn-add" type="button" aria-haspopup="true" aria-expanded="false" title="Add a step to the chart">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg><span class="lbl">Add step</span>
+        </button>
+        <div class="menu" id="menu-add" hidden></div>
+      </div>
+      <button class="btn hide-narrow" id="btn-arrange" type="button" aria-pressed="true" title="Auto-arrange: keep the chart laid out, with links that don&#39;t cross">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="1.5" width="5" height="3" rx="1"/><rect x="1.5" y="11.5" width="5" height="3" rx="1"/><rect x="9.5" y="11.5" width="5" height="3" rx="1"/><path d="M8 4.5v3M4 11.5V9.5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span class="lbl">Auto-arrange</span>
+      </button>
+      <button class="btn icon hide-narrow" id="btn-undo" type="button" aria-label="Undo" title="Undo (Ctrl+Z)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a4 4 0 0 1 0 8H7"/></svg>
+      </button>
+      <button class="btn icon hide-narrow" id="btn-redo" type="button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a4 4 0 0 0 0 8H9"/></svg>
+      </button>
+      <button class="btn" id="btn-play" type="button" aria-pressed="false" title="Walk through the chart as the player would">
+        <svg viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg><span class="lbl">Play test</span>
+      </button>
+      <button class="btn icon only-sheet" id="btn-info" type="button" aria-label="Chart details" title="Chart details">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 7.3v4M8 4.8v.1"/></svg>
+      </button>
+      <div class="menu-wrap">
+        <button class="btn icon" id="btn-more" type="button" aria-label="More" aria-haspopup="true" aria-expanded="false" title="More">
+          <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>
+        </button>
+        <div class="menu right" id="menu-more" hidden>
+          <button class="mi only-narrow" type="button" data-act="arrange" id="mi-auto">Turn auto-arrange off</button>
+          <button class="mi only-narrow" type="button" data-act="undo">Undo</button>
+          <button class="mi only-narrow" type="button" data-act="redo">Redo</button>
+          <div class="mi-sep only-narrow"></div>
+          <button class="mi" type="button" data-act="fit">Fit chart to screen<small>Shortcut: F</small></button>
+          <button class="mi" type="button" data-act="copy-json">Copy as JSON<small>Every step and link, with the game ids</small></button>
+          <button class="mi" type="button" data-act="copy-walk">Copy as walkthrough<small>The steps in an order the player could do them</small></button>
+        </div>
+      </div>
+      <button class="status" id="status" type="button" data-s="busy" title="Saving"><span class="dot"></span><span id="status-text">Loading</span></button>
+    </div>
+  </header>
+
+  <aside class="side panel" id="side" aria-label="Charts">
+    <div class="side-head"><h2>Charts</h2>
+      <button class="btn small" id="btn-new" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>New chart</button>
+    </div>
+    <div class="chart-list" id="chart-list"></div>
+    <section class="legend"><h3>Kinds of step</h3><ul id="legend"></ul></section>
+    <p class="side-note">Arrows run from what a step needs to what it opens, through the sub goals, down to the end goal. Charts are saved with this page, and Claude can read them back when it builds the puzzles in Godot.</p>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <main class="stage" id="stage" aria-label="Puzzle chart">
+    <div class="world" id="world">
+      <svg class="edges" id="edges" width="1" height="1" aria-hidden="true">
+        <defs>
+          <marker id="m-norm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path class="mk-norm" d="M0 1 10 5 0 9z"/></marker>
+          <marker id="m-strong" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="mk-strong" d="M0 1 10 5 0 9z"/></marker>
+          <marker id="m-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="mk-bad" d="M0 1 10 5 0 9z"/></marker>
+        </defs>
+        <g id="edge-g"></g>
+        <g id="guide-g"></g>
+        <path id="temp-edge" class="e-temp" marker-end="url(#m-strong)" hidden></path>
+      </svg>
+      <div id="nodes"></div>
+    </div>
+    <div class="stage-ui banner" id="banner" hidden></div>
+    <div class="stage-ui empty" id="empty" hidden></div>
+    <div class="stage-ui hint" id="hint">Double-click to add a step · drag a step's dot onto another to link them · wheel to zoom · steps line up when close; hold <kbd>Shift</kbd> to place one freely</div>
+    <div class="stage-ui zoom">
+      <button class="btn icon" id="z-out" type="button" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button>
+      <span id="z-level">100%</span>
+      <button class="btn icon" id="z-in" type="button" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+      <button class="btn icon" id="z-fit" type="button" aria-label="Fit chart to screen" title="Fit chart to screen (F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
+    </div>
+  </main>
+
+  <aside class="insp panel" id="insp" aria-label="Details"></aside>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="modal" id="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h2 id="modal-title">Copy</h2>
+    <p id="modal-text">Copying wasn't allowed here. The text is selected: press Ctrl+C (or ⌘C) to copy it.</p>
+    <textarea id="modal-area" readonly spellcheck="false"></textarea>
+    <div class="row"><button class="btn primary" id="modal-close" type="button">Done</button></div>
+  </div>
+</div>
+<datalist id="dl-scenes"></datalist>
+<datalist id="dl-people"></datalist>
+
+<script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+<script>
+(function () {
+'use strict';
+
+/* ------------------------------------------------------------------ game data */
+const NODE_W = 196;
+const KIND_LIST = ['setup', 'subgoal', 'goal', 'action', 'item', 'combo', 'phase'];
+const KINDS = {
+  setup:   { label: 'Scene setup',   hint: 'How things stand when the puzzle starts: who is where, what is locked, what is in the way.', idLabel: 'Flag (if any)', idPh: 'lamp_on', title: 'How things stand' },
+  subgoal: { label: 'Sub goal',      hint: 'A milestone on the way: one part of the puzzle solved.', idLabel: 'Flag set when reached', idPh: 'lamp_off', title: 'A sub goal' },
+  goal:    { label: 'End goal',      hint: 'What the chart is for: the puzzle solved, the act over.', idLabel: 'Flag set when reached', idPh: 'chart_done', title: 'The end goal' },
+  action:  { label: 'Action',        hint: 'Something the player does: look, talk, use, give, open.', idLabel: 'Flag it sets', idPh: 'asked_about_key', title: 'New action' },
+  item:    { label: 'Get item',      hint: 'The player picks up an item or is given one.', idLabel: 'Item id (items/<id>.tres)', idPh: 'rope', title: 'An item' },
+  combo:   { label: 'Combined item', hint: 'Items put together in the inventory. Link the items that go into it.', idLabel: 'Item id (items/<id>.tres)', idPh: 'rope_and_hook', title: 'A combined item' },
+  phase:   { label: 'Time',          hint: 'A time of day has to come round.', idLabel: '', idPh: '', title: 'Time passes' },
+};
+const LEGACY_KINDS = { info: 'subgoal', talk: 'action', place: 'subgoal' };   // kinds used before 2026-11-23
+const GLYPHS = {
+  setup: 'M1 2h10v8H1zm1.4 1.4v5.2h7.2V3.4z',
+  subgoal: 'M6 1a5 5 0 1 0 0 10A5 5 0 0 0 6 1zm0 1.6a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8zm0 2a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8z',
+  goal: 'M2.5 1h1.3v.6h6.9L8.8 4.4l1.9 2.8H3.8V11.5H2.5z',
+  action: 'M3 1.8 10.4 6 3 10.2z',
+  item: 'M6 .9 11.1 6 6 11.1.9 6z',
+  combo: 'M4.9 1h2.2v3.9H11v2.2H7.1V11H4.9V7.1H1V4.9h3.9z',
+  phase: 'M6 .9a5.1 5.1 0 1 0 0 10.2A5.1 5.1 0 0 0 6 .9zm0 1.5v7.2a3.6 3.6 0 0 1 0-7.2z',
+};
+let SCENES = [];
+let PEOPLE = [['player', 'The player']];
+let SCENE_NAME = Object.fromEntries(SCENES);
+let PERSON_NAME = Object.fromEntries(PEOPLE.map(([id, n]) => [id, n.split(',')[0]]));
+// The scene and people lists follow Plastico, the 3D world model, when Claude has synced the two
+// (database doc meta/world). Until then, and if that doc can't be read, the lists above are used.
+function pairList(v) {
+  if (!Array.isArray(v)) return null;
+  const out = [], seen = new Set();
+  for (const p of v.slice(0, 400)) {
+    if (!Array.isArray(p) || typeof p[0] !== 'string' || !p[0].trim() || seen.has(p[0])) continue;
+    seen.add(p[0]); out.push([p[0].slice(0, 80), (typeof p[1] === 'string' && p[1].trim() ? p[1] : p[0]).slice(0, 120)]);
+  }
+  return out;
+}
+function applyWorld(d) {
+  const scenes = pairList(d && d.scenes), people = pairList(d && d.people);
+  if (!scenes || !scenes.length) return false;
+  SCENES = scenes;
+  if (people) PEOPLE = [['player', 'The player']].concat(people.filter(([id]) => id !== 'player'));
+  SCENE_NAME = Object.fromEntries(SCENES);
+  PERSON_NAME = Object.fromEntries(PEOPLE.map(([id, n]) => [id, n.split(',')[0]]));
+  return true;
+}
+function fillLists() {
+  const ds = $('#dl-scenes'); ds.textContent = ''; for (const [id, n] of SCENES) { const o = el('option'); o.value = id; o.label = n; ds.append(o); }
+  const dp = $('#dl-people'); dp.textContent = ''; for (const [id, n] of PEOPLE) { const o = el('option'); o.value = id; o.label = n; dp.append(o); }
+}
+const PHASES = ['morning', 'day', 'sunset', 'midnight'];
+const ACTS = [[1, ''], [2, ''], [3, ''], [4, '']];   // titles are yours to write; empty shows just the number
+const STATUSES = [['idea', 'Idea'], ['written', 'Written'], ['built', 'In game']];
+const STATUS_LABEL = Object.fromEntries(STATUSES);
+const LS_LAST = 'puzzle-charts:last';
+const HINT_AUTO = 'Double-click to add a step · drag a step’s dot onto another to link them · drag a step sideways to move it along its row · wheel to zoom';
+const HINT_FREE = 'Double-click to add a step · drag a step’s dot onto another to link them · wheel to zoom · steps line up when close; hold <kbd>Shift</kbd> to place one freely';
+
+/* ------------------------------------------------------------------ state */
+const S = {
+  charts: new Map(), currentId: null, sel: null,
+  view: { x: 0, y: 0, k: 1 }, views: new Map(),
+  play: null, an: null, hl: null,
+  db: null, dbState: 'loading', loaded: false, readOnly: false, saveErr: '',
+  dirty: new Set(), inflight: new Set(), timers: new Map(), localOnly: new Set(),
+  undo: new Map(), redo: new Map(), lastEdit: null,
+  drawer: false, sheet: false, gesture: null,
+  routes: new Map(), routesChart: null, layoutPos: null, layoutSeq: 0, layoutTimer: 0, layoutOpts: null, animFrame: 0, animating: false,
+};
+const clientId = Math.random().toString(36).slice(2, 8);
+let revCounter = 0;
+
+/* ------------------------------------------------------------------ helpers */
+const $ = (s) => document.querySelector(s);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function show(e, on) { e.toggleAttribute('hidden', !on); }
+function svgEl(tag, attrs) { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+function glyph(kind) { const s = svgEl('svg', { viewBox: '0 0 12 12', class: 'g', 'aria-hidden': 'true' }); s.append(svgEl('path', { d: GLYPHS[kind], 'fill-rule': 'evenodd' })); s.style.color = `var(--k-${kind})`; return s; }
+const str = (v) => (typeof v === 'string' ? v.slice(0, 4000) : '');
+const num = (v) => (Number.isFinite(v) ? v : 0);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const nid = () => 'n' + Math.random().toString(36).slice(2, 9);
+const cur = () => S.charts.get(S.currentId) || null;
+const isNarrow = () => matchMedia('(max-width: 719px)').matches;
+const isDrawer = () => matchMedia('(max-width: 999px)').matches;
+const sceneName = (s) => (s ? SCENE_NAME[s] || s : '');
+const personName = (p) => (p ? PERSON_NAME[p] || p : '');
+const nodeTitle = (n) => (n && n.title.trim()) || 'Untitled step';
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage off */ } }
+
+let toastTimer = 0;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; show(t, true); clearTimeout(toastTimer); toastTimer = setTimeout(() => show(t, false), 3200); }
+
+/* ------------------------------------------------------------------ model */
+function blankNode(kind, x, y) {
+  return { id: nid(), kind, title: KINDS[kind].title, scene: '', who: '', when: '', gid: '', status: 'idea', notes: '', x: Math.round(x), y: Math.round(y) };
+}
+function normalize(id, d) {
+  d = d || {};
+  const kinds = new Set(KIND_LIST);
+  const nodes = (Array.isArray(d.nodes) ? d.nodes : []).filter((n) => n && typeof n.id === 'string').map((n) => ({
+    id: n.id, kind: kinds.has(n.kind) ? n.kind : (LEGACY_KINDS[n.kind] || 'action'), title: str(n.title), scene: str(n.scene), who: str(n.who),
+    when: PHASES.includes(n.when) ? n.when : '', gid: str(n.gid), status: STATUS_LABEL[n.status] ? n.status : 'idea',
+    notes: str(n.notes), x: num(n.x), y: num(n.y),
+  }));
+  const ids = new Set(nodes.map((n) => n.id));
+  const seen = new Set();
+  const edges = (Array.isArray(d.edges) ? d.edges : []).filter((e) => {
+    if (!e || !ids.has(e.from) || !ids.has(e.to) || e.from === e.to) return false;
+    const k = e.from + '>' + e.to; if (seen.has(k)) return false; seen.add(k); return true;
+  }).map((e) => ({ from: e.from, to: e.to }));
+  return { id, name: str(d.name) || 'Untitled chart', act: [1, 2, 3, 4].includes(d.act) ? d.act : 1, notes: str(d.notes),
+    nodes, edges, auto: d.auto !== false, createdAt: num(d.createdAt) || Date.now(), updatedAt: num(d.updatedAt), rev: str(d.rev) };
+}
+function serialize(c) {
+  return {
+    v: 1, name: c.name, act: c.act, notes: c.notes,
+    nodes: c.nodes.map((n) => ({ id: n.id, kind: n.kind, title: n.title, scene: n.scene, who: n.who, when: n.when, gid: n.gid, status: n.status, notes: n.notes, x: Math.round(n.x), y: Math.round(n.y) })),
+    edges: c.edges.map((e) => ({ from: e.from, to: e.to })),
+    auto: c.auto !== false, createdAt: c.createdAt, updatedAt: c.updatedAt, rev: c.rev,
+  };
+}
+function snapshotOf(c) { return JSON.stringify({ name: c.name, act: c.act, notes: c.notes, nodes: c.nodes, edges: c.edges }); }
+
+/* ------------------------------------------------------------------ analysis */
+function analyze(c) {
+  const ids = c.nodes.map((n) => n.id);
+  const byId = new Map(c.nodes.map((n) => [n.id, n]));
+  const preds = new Map(), succs = new Map();
+  ids.forEach((i) => { preds.set(i, []); succs.set(i, []); });
+  for (const e of c.edges) { if (byId.has(e.from) && byId.has(e.to)) { succs.get(e.from).push(e.to); preds.get(e.to).push(e.from); } }
+
+  // strongly connected components: a loop means the steps need each other
+  let idx = 0; const index = new Map(), low = new Map(), onStack = new Set(), stack = [], sccs = [];
+  function strong(v) {
+    index.set(v, idx); low.set(v, idx); idx++; stack.push(v); onStack.add(v);
+    for (const w of succs.get(v)) {
+      if (!index.has(w)) { strong(w); low.set(v, Math.min(low.get(v), low.get(w))); }
+      else if (onStack.has(w)) low.set(v, Math.min(low.get(v), index.get(w)));
+    }
+    if (low.get(v) === index.get(v)) {
+      const comp = []; let w;
+      do { w = stack.pop(); onStack.delete(w); comp.push(w); } while (w !== v);
+      if (comp.length > 1) sccs.push(comp);
+    }
+  }
+  ids.forEach((v) => { if (!index.has(v)) strong(v); });
+  const compOf = new Map(); sccs.forEach((comp, i) => comp.forEach((v) => compOf.set(v, i)));
+  const cycNodes = new Set(compOf.keys());
+  const cycEdges = new Set();
+  for (const e of c.edges) if (compOf.has(e.from) && compOf.get(e.from) === compOf.get(e.to)) cycEdges.add(e.from + '>' + e.to);
+
+  // topological order (loops left out), longest chain
+  const indeg = new Map(ids.map((i) => [i, 0]));
+  const okEdges = c.edges.filter((e) => byId.has(e.from) && byId.has(e.to) && !cycEdges.has(e.from + '>' + e.to));
+  okEdges.forEach((e) => indeg.set(e.to, indeg.get(e.to) + 1));
+  const okSucc = new Map(ids.map((i) => [i, []])); okEdges.forEach((e) => okSucc.get(e.from).push(e.to));
+  const ready = c.nodes.filter((n) => indeg.get(n.id) === 0);
+  const order = []; const depth = new Map(ids.map((i) => [i, 1]));
+  while (ready.length) {
+    ready.sort((a, b) => a.y - b.y || a.x - b.x);
+    const n = ready.shift(); order.push(n);
+    for (const t of okSucc.get(n.id)) {
+      depth.set(t, Math.max(depth.get(t), depth.get(n.id) + 1));
+      indeg.set(t, indeg.get(t) - 1);
+      if (indeg.get(t) === 0) ready.push(byId.get(t));
+    }
+  }
+  const placed = new Set(order.map((n) => n.id));
+  c.nodes.forEach((n) => { if (!placed.has(n.id)) order.push(n); });
+  const longest = c.nodes.length ? Math.max(...depth.values()) : 0;
+
+  // reaching a goal
+  const goals = c.nodes.filter((n) => n.kind === 'goal');
+  const toGoal = new Set(goals.map((g) => g.id));
+  const q = [...toGoal];
+  while (q.length) { const v = q.pop(); for (const p of preds.get(v)) if (!toGoal.has(p)) { toGoal.add(p); q.push(p); } }
+
+  const issues = [];
+  sccs.forEach((comp) => {
+    const names = comp.map((i) => nodeTitle(byId.get(i)));
+    issues.push({ level: 'error', head: 'Deadlock', text: `${listNames(names)} need each other, so none of them can be done first.`, nodes: comp });
+  });
+  if (c.nodes.length && !goals.length) issues.push({ level: 'warn', head: 'No end goal yet', text: 'Add an End goal step: the thing this chart is for. The checks below need one.', nodes: [] });
+  // scene setup with nothing before it is how things stand when the puzzle starts
+  const given = new Set(c.nodes.filter((n) => n.kind === 'setup' && !preds.get(n.id).length).map((n) => n.id));
+  const starts = [];
+  for (const n of c.nodes) {
+    const p = preds.get(n.id), s = succs.get(n.id).length;
+    if (!given.has(n.id) && n.kind !== 'goal' && p.every((x) => given.has(x))) starts.push(n.id);
+    if (n.kind === 'combo') {
+      const parts = p.filter((x) => byId.get(x).kind === 'item' || byId.get(x).kind === 'combo').length;
+      if (parts < 2) issues.push({ level: 'warn', head: 'Combined item', text: `${nodeTitle(n)} should be made from at least two items: link the items that go into it.`, nodes: [n.id] });
+    }
+    if (n.kind === 'goal') continue;
+    if (!p.length && !s && c.nodes.length > 1) { issues.push({ level: 'warn', head: 'Not linked', text: `${nodeTitle(n)} isn't linked to anything.`, nodes: [n.id] }); continue; }
+    if ((n.kind === 'item' || n.kind === 'combo') && !s) { issues.push({ level: 'warn', head: 'Item never used', text: `The player ${n.kind === 'combo' ? 'makes' : 'gets'} ${nodeTitle(n)} but nothing needs it.`, nodes: [n.id] }); continue; }
+    if (goals.length && !toGoal.has(n.id)) issues.push({ level: 'warn', head: 'Leads nowhere', text: `${nodeTitle(n)} doesn't help reach the end goal.`, nodes: [n.id] });
+  }
+  const subgoals = c.nodes.filter((n) => n.kind === 'subgoal');
+  const setups = c.nodes.filter((n) => n.kind === 'setup').length;
+  return { preds, succs, byId, cycNodes, cycEdges, order, longest, goals, subgoals, given, starts, issues, steps: c.nodes.length - goals.length - setups };
+}
+function listNames(names) {
+  const q = names.map((n) => `“${n}”`);
+  if (q.length <= 2) return q.join(' and ');
+  return q.slice(0, -1).join(', ') + ' and ' + q[q.length - 1];
+}
+function ancestors(an, id) { const out = new Set(), q = [id]; while (q.length) { for (const p of an.preds.get(q.pop()) || []) if (!out.has(p)) { out.add(p); q.push(p); } } out.delete(id); return out; }
+function descendants(an, id) { const out = new Set(), q = [id]; while (q.length) { for (const s of an.succs.get(q.pop()) || []) if (!out.has(s)) { out.add(s); q.push(s); } } out.delete(id); return out; }
+
+/* ------------------------------------------------------------------ canvas */
+const stage = $('#stage'), world = $('#world'), nodesLayer = $('#nodes'), edgeG = $('#edge-g'), guideG = $('#guide-g'), tempEdge = $('#temp-edge');
+const nodeEls = new Map();
+const nodeH = (id) => (nodeEls.get(id) ? nodeEls.get(id).offsetHeight : 84);
+
+function applyView() {
+  const { x, y, k } = S.view;
+  world.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
+  const a = 24 * k, b = 120 * k;
+  stage.style.backgroundSize = `${b}px ${b}px, ${b}px ${b}px, ${a}px ${a}px, ${a}px ${a}px`;
+  stage.style.backgroundPosition = `${x}px ${y}px`;
+  $('#z-level').textContent = Math.round(k * 100) + '%';
+}
+function toWorld(cx, cy) { const r = stage.getBoundingClientRect(); return { x: (cx - r.left - S.view.x) / S.view.k, y: (cy - r.top - S.view.y) / S.view.k }; }
+function zoomAt(px, py, f) {
+  const k = clamp(S.view.k * f, 0.25, 2);
+  const wx = (px - S.view.x) / S.view.k, wy = (py - S.view.y) / S.view.k;
+  S.view = { k, x: px - wx * k, y: py - wy * k }; applyView();
+}
+function zoomCenter(f) { const r = stage.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, f); }
+function fitFor(boxes) {
+  const r = stage.getBoundingClientRect();
+  if (!boxes.length) return { x: r.width / 2 - NODE_W / 2, y: r.height / 3, k: 1 };
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const b of boxes) { x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + NODE_W); y1 = Math.max(y1, b.y + b.h); }
+  const pad = isNarrow() ? 28 : 56;
+  const k = clamp(Math.min((r.width - pad * 2) / (x1 - x0), (r.height - pad * 2) / (y1 - y0)), 0.3, 1.1);
+  return { k, x: (r.width - (x1 - x0) * k) / 2 - x0 * k, y: (r.height - (y1 - y0) * k) / 2 - y0 * k };
+}
+function fitView() { const c = cur(); S.view = fitFor(c ? c.nodes.map((n) => ({ x: n.x, y: n.y, h: nodeH(n.id) })) : []); applyView(); }
+function centerOn(id) {
+  const c = cur(); const n = c && c.nodes.find((m) => m.id === id); if (!n) return;
+  const r = stage.getBoundingClientRect(); const k = Math.max(S.view.k, 0.7);
+  S.view = { k, x: r.width / 2 - (n.x + NODE_W / 2) * k, y: r.height / (isNarrow() ? 4 : 2) - (n.y + nodeH(id) / 2) * k }; applyView();
+}
+
+function computeHighlight() {
+  const c = cur(), an = S.an; const hl = { node: new Map(), edge: new Map() };
+  S.hl = hl; if (!c || !an) return;
+  if (S.play) {
+    const done = S.play.done;
+    for (const n of c.nodes) {
+      if (done.has(n.id)) hl.node.set(n.id, 'p-done');
+      else if (an.preds.get(n.id).every((p) => done.has(p))) hl.node.set(n.id, 'p-avail');
+      else hl.node.set(n.id, 'p-locked');
+    }
+    for (const e of c.edges) hl.edge.set(e.from + '>' + e.to, done.has(e.from) ? 'e-done' : 'e-dim');
+    return;
+  }
+  if (S.sel && S.sel.type === 'node' && an.byId.has(S.sel.id)) {
+    const id = S.sel.id, anc = ancestors(an, id), desc = descendants(an, id);
+    for (const n of c.nodes) hl.node.set(n.id, n.id === id ? 'sel' : anc.has(n.id) ? 'anc' : desc.has(n.id) ? 'desc' : 'dim');
+    for (const e of c.edges) {
+      const k = e.from + '>' + e.to;
+      if (anc.has(e.from) && (e.to === id || anc.has(e.to))) hl.edge.set(k, 'e-anc');
+      else if ((e.from === id || desc.has(e.from)) && desc.has(e.to)) hl.edge.set(k, 'e-desc');
+      else hl.edge.set(k, 'e-dim');
+    }
+  } else if (S.sel && S.sel.type === 'edge') {
+    hl.edge.set(S.sel.from + '>' + S.sel.to, 'e-sel');
+  }
+}
+
+function fillNode(e, n) {
+  const st = S.hl && S.hl.node.get(n.id);
+  let cls = 'node k-' + n.kind;
+  if (st) cls += ' ' + st;
+  if (S.an && S.an.cycNodes.has(n.id)) cls += ' bad';
+  e.className = cls;
+  e.style.setProperty('--kc', `var(--k-${n.kind})`);
+  e.style.left = n.x + 'px'; e.style.top = n.y + 'px';
+  e.tabIndex = 0;
+  e.setAttribute('role', 'button');
+  e.setAttribute('aria-label', `${KINDS[n.kind].label}: ${nodeTitle(n)}`);
+  e.textContent = '';
+  const top = el('div', 'n-top');
+  const kind = el('span', 'n-kind'); kind.append(glyph(n.kind), document.createTextNode(KINDS[n.kind].label));
+  top.append(kind, el('span', 'n-st st-' + n.status, STATUS_LABEL[n.status]));
+  e.append(top, el('div', 'n-title', nodeTitle(n)));
+  const meta = [sceneName(n.scene), personName(n.who), n.when].filter(Boolean).join(' · ');
+  if (meta) e.append(el('div', 'n-meta', meta));
+  if (n.gid && n.kind !== 'phase') e.append(el('div', 'n-id', n.gid));
+  if (S.play && S.play.done.has(n.id)) { const i = S.play.order.indexOf(n.id); e.append(el('span', 'tick', i < 0 ? '✓' : String(i + 1))); }
+  if (!S.play && !S.readOnly) { const p = el('div', 'port'); p.title = 'Drag onto the step this one opens'; e.append(p); }
+}
+
+function pathD(sx, sy, tx, ty) {
+  const dy = ty - sy;
+  const m = dy >= 24 ? Math.max(24, dy * 0.5) : 60 + Math.min(140, Math.abs(dy) * 0.35);
+  return `M${sx},${sy} C${sx},${sy + m} ${tx},${ty - m} ${tx},${ty}`;
+}
+// A link follows the route the layout gave it while both its steps are still where the layout put them.
+function routeOk(c, a, b) {
+  if (S.routesChart !== c.id || !S.layoutPos) return false;
+  for (const n of [a, b]) {
+    const lp = S.layoutPos.get(n.id);
+    if (!lp || Math.abs(lp.x - n.x) > 0.5 || Math.abs(lp.y - n.y) > 0.5 || Math.abs(lp.h - nodeH(n.id)) > 1) return false;
+  }
+  return true;
+}
+function roundedPath(pts) {
+  const P = pts.map((p) => ({ x: p.x, y: p.y }));
+  const L = P[P.length - 1], M = P[P.length - 2];
+  if (M && Math.abs(M.x - L.x) < 0.5 && L.y - M.y > 4) L.y -= 2;   // stop just short of the step, for the arrowhead
+  let d = `M${P[0].x},${P[0].y}`;
+  for (let i = 1; i < P.length - 1; i++) {
+    const p0 = P[i - 1], p1 = P[i], p2 = P[i + 1];
+    const d1 = Math.hypot(p1.x - p0.x, p1.y - p0.y), d2 = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const r = Math.min(10, d1 / 2, d2 / 2);
+    if (r < 0.5) { d += ` L${p1.x},${p1.y}`; continue; }
+    d += ` L${p1.x + (p0.x - p1.x) * r / d1},${p1.y + (p0.y - p1.y) * r / d1} Q${p1.x},${p1.y} ${p1.x + (p2.x - p1.x) * r / d2},${p1.y + (p2.y - p1.y) * r / d2}`;
+  }
+  return d + ` L${L.x},${L.y}`;
+}
+function drawEdges() {
+  const c = cur(); edgeG.textContent = ''; if (!c) return;
+  const byId = new Map(c.nodes.map((n) => [n.id, n]));
+  for (const e of c.edges) {
+    const a = byId.get(e.from), b = byId.get(e.to); if (!a || !b) continue;
+    const key = e.from + '>' + e.to;
+    let cls = (S.hl && S.hl.edge.get(key)) || '';
+    const bad = S.an && S.an.cycEdges.has(key);
+    if (bad && cls !== 'e-dim' && !S.play) cls = 'e-bad';
+    const route = S.routes.get(key);
+    const d = route && routeOk(c, a, b) ? roundedPath(route) : pathD(a.x + NODE_W / 2, a.y + nodeH(a.id) + 1, b.x + NODE_W / 2, b.y - 2);
+    const mk = cls === 'e-bad' ? 'm-bad' : (cls && cls !== 'e-dim') ? 'm-strong' : 'm-norm';
+    edgeG.append(svgEl('path', { d, class: 'edge ' + cls, 'marker-end': `url(#${mk})` }));
+    if (!S.play) edgeG.append(svgEl('path', { d, class: 'edge-hit', 'data-from': e.from, 'data-to': e.to }));
+  }
+}
+function renderCanvas() {
+  const c = cur();
+  S.an = c ? analyze(c) : null;
+  computeHighlight();
+  const seen = new Set();
+  if (c) for (const n of c.nodes) {
+    let e = nodeEls.get(n.id);
+    if (!e) { e = document.createElement('div'); e.dataset.id = n.id; nodesLayer.append(e); nodeEls.set(n.id, e); }
+    fillNode(e, n); seen.add(n.id);
+  }
+  for (const [id, e] of nodeEls) if (!seen.has(id)) { e.remove(); nodeEls.delete(id); }
+  drawEdges();
+  renderOverlays();
+}
+function refreshNode(n) { const e = nodeEls.get(n.id); if (e) fillNode(e, n); drawEdges(); }
+
+/* ------------------------------------------------------------------ overlays */
+function renderOverlays() {
+  const c = cur(), empty = $('#empty'), banner = $('#banner');
+  empty.textContent = ''; empty.className = 'stage-ui empty';
+  if (!c) {
+    if (!S.loaded || S.dbState === 'slow' || S.dbState === 'error') {
+      empty.classList.add('slim');
+      const msg = S.dbState === 'error' ? 'Your saved charts couldn’t be loaded. Reload the page to try again.'
+        : S.dbState === 'slow' ? 'Your saved charts can’t be reached yet. They’ll appear here as soon as they load.'
+        : 'Loading your puzzle charts…';
+      empty.append(el('p', '', msg));
+    } else {
+      empty.append(el('h2', '', 'No puzzle charts yet'));
+      empty.append(el('p', '', 'A puzzle chart maps what each puzzle needs before it can be solved: how the scene is set up, what the player does, the items to get or combine, the time of day. Arrows run from what’s needed to what it opens, through the sub goals, down to the end goal.'));
+      empty.append(el('p', '', 'Start from the end goal and work backwards: what does the player need just before it?'));
+      if (S.dbState === 'off') empty.append(el('p', 'note', 'Saving is off in this view. Open the page in Claude to keep your charts.'));
+      if (!S.readOnly) {
+        const row = el('div', 'row'); const b = el('button', 'btn primary', 'New chart'); b.type = 'button'; b.onclick = newChart; row.append(b); empty.append(row);
+      }
+    }
+    show(empty, true);
+  } else if (!c.nodes.length && !S.readOnly) {
+    empty.classList.add('slim');
+    empty.append(el('p', '', 'This chart is empty. Double-click the paper to add a step, or use Add step.'));
+    show(empty, true);
+  } else show(empty, false);
+
+  banner.textContent = ''; banner.className = 'stage-ui banner';
+  if (S.play && c) {
+    const an = S.an, done = S.play.done;
+    const open = c.nodes.filter((n) => !done.has(n.id) && an.preds.get(n.id).every((p) => done.has(p)));
+    const goalsLeft = an.goals.filter((g) => !done.has(g.id));
+    const steps = S.play.order.length;
+    if (an.goals.length && !goalsLeft.length) {
+      banner.classList.add('solved');
+      banner.append(el('b', '', `Solved in ${steps} step${steps === 1 ? '' : 's'}.`), el('span', 'msg', `At most ${S.play.maxOpen} thing${S.play.maxOpen === 1 ? ' was' : 's were'} open at once.`));
+    } else if (!open.length) {
+      banner.classList.add('stuck');
+      banner.append(el('b', '', done.size === c.nodes.length ? 'Every step done.' : 'Stuck.'), el('span', 'msg', done.size === c.nodes.length ? 'There’s no goal to reach.' : 'Nothing left can be done: look for a deadlock.'));
+    } else {
+      banner.append(el('b', '', 'Play test'), el('span', 'msg', S.play.msg || `Step ${steps + 1} · ${open.length} open now. Click a step with a dashed outline to do it.`));
+    }
+    const u = el('button', 'btn small', 'Undo step'); u.type = 'button'; u.disabled = !steps; u.onclick = playUndo;
+    const r = el('button', 'btn small', 'Restart'); r.type = 'button'; r.disabled = !steps; r.onclick = startPlay;
+    const x = el('button', 'btn small', 'Stop'); x.type = 'button'; x.onclick = stopPlay;
+    banner.append(u, r, x);
+    show(banner, true);
+  } else show(banner, false);
+  const hint = $('#hint');
+  if (c) hint.innerHTML = c.auto ? HINT_AUTO : HINT_FREE;
+  show(hint, !!c && !S.play && !S.readOnly);
+}
+
+/* ------------------------------------------------------------------ sidebar */
+function renderSide() {
+  const list = $('#chart-list'); list.textContent = '';
+  const charts = [...S.charts.values()];
+  if (!charts.length) { list.append(el('p', 'side-empty', S.loaded ? 'No charts yet. Make the first with New chart.' : 'Loading…')); }
+  for (const [act, title] of ACTS) {
+    const group = charts.filter((c) => c.act === act).sort((a, b) => a.name.localeCompare(b.name));
+    if (!group.length) continue;
+    const g = el('div', 'act');
+    const h = el('div', 'act-head'); h.append(el('span', 'act-num', 'Act ' + act), el('span', 'act-title', title)); g.append(h);
+    for (const c of group) {
+      const b = el('button', 'chart-item' + (c.id === S.currentId ? ' on' : '')); b.type = 'button';
+      if (c.id === S.currentId) b.setAttribute('aria-current', 'true');
+      const an = analyze(c);
+      const meta = el('span', 'ci-meta', `${an.steps} step${an.steps === 1 ? '' : 's'}`);
+      const errs = an.issues.filter((i) => i.level === 'error').length;
+      const warns = an.issues.length - errs;
+      if (errs) meta.append(' · ', el('span', 'warn', `${errs} deadlock${errs === 1 ? '' : 's'}`));
+      else if (warns) meta.append(` · ${warns} to check`);
+      b.append(el('span', 'ci-name', c.name), meta);
+      b.onclick = () => { openChart(c.id); S.drawer = false; updateChrome(); };
+      g.append(b);
+    }
+    list.append(g);
+  }
+  $('#btn-new').disabled = S.readOnly;
+}
+function renderLegend() {
+  const ul = $('#legend');
+  for (const k of KIND_LIST) { const li = el('li'); const t = el('span'); t.append(el('b', '', KINDS[k].label), document.createTextNode(KINDS[k].hint)); li.append(glyph(k), t); ul.append(li); }
+  const am = $('#menu-add');
+  for (const k of KIND_LIST) {
+    const b = el('button', 'mi'); b.type = 'button'; b.dataset.kind = k;
+    const t = el('span'); t.append(document.createTextNode(KINDS[k].label), el('small', '', KINDS[k].hint));
+    b.append(glyph(k), t); b.onclick = () => { closeMenus(); addAtCenter(k); }; am.append(b);
+  }
+  fillLists();
+}
+
+/* ------------------------------------------------------------------ inspector */
+function panelHead(box, title, kind) {
+  const h = el('div', 'insp-head'); const h2 = el('h2');
+  if (kind) h2.append(glyph(kind));
+  h2.append(document.createTextNode(title)); h.append(h2);
+  const x = el('button', 'btn icon sheet-close'); x.type = 'button'; x.setAttribute('aria-label', 'Close details');
+  x.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg>';
+  x.onclick = () => { S.sheet = false; select(null); };
+  h.append(x); box.append(h);
+}
+function field(label, control, help) {
+  const f = el('div', 'f'); const l = el('label', '', label); l.htmlFor = control.id; f.append(l, control);
+  if (help) f.append(el('span', 'help', help));
+  return f;
+}
+function input(id, value, ph, onInput, cls) {
+  const i = el('input', cls || ''); i.id = id; i.type = 'text'; i.value = value; i.autocomplete = 'off'; i.spellcheck = false;
+  if (ph) i.placeholder = ph; i.disabled = S.readOnly || !!S.play; i.addEventListener('input', () => onInput(i.value)); return i;
+}
+function textarea(id, value, ph, onInput) {
+  const t = el('textarea'); t.id = id; t.value = value; t.rows = 3; if (ph) t.placeholder = ph;
+  t.disabled = S.readOnly || !!S.play; t.addEventListener('input', () => onInput(t.value)); return t;
+}
+function beginEdit(key) {
+  const now = Date.now();
+  if (!S.lastEdit || S.lastEdit.key !== key || now - S.lastEdit.t > 2500) pushUndo();
+  S.lastEdit = { key, t: now };
+}
+
+function renderInspector() {
+  const box = $('#insp'); box.textContent = '';
+  const c = cur();
+  if (!c) { panelHead(box, 'Details'); box.append(el('p', 'insp-empty', S.loaded ? 'Open a chart, or make a new one, to see its details here.' : 'Loading charts…')); return; }
+  if (S.play) return playPanel(box, c);
+  if (S.sel && S.sel.type === 'node') { const n = c.nodes.find((m) => m.id === S.sel.id); if (n) return nodePanel(box, c, n); }
+  if (S.sel && S.sel.type === 'edge') { const e = c.edges.find((m) => m.from === S.sel.from && m.to === S.sel.to); if (e) return edgePanel(box, c, e); }
+  chartPanel(box, c);
+}
+
+function chartPanel(box, c) {
+  panelHead(box, 'Chart');
+  box.append(field('Name', input('f-chart-name', c.name, 'What this chart is about', (v) => { beginEdit('chart-name'); c.name = v; scheduleSave(); renderSide(); updateChrome(); })));
+  const sel = el('select'); sel.id = 'f-chart-act'; sel.disabled = S.readOnly;
+  for (const [a, t] of ACTS) { const o = el('option', '', t ? `Act ${a} · ${t}` : `Act ${a}`); o.value = String(a); if (a === c.act) o.selected = true; sel.append(o); }
+  sel.onchange = () => { pushUndo(); c.act = Number(sel.value); scheduleSave(); renderSide(); };
+  box.append(field('Act', sel));
+  box.append(field('Notes', textarea('f-chart-notes', c.notes, 'What the player is trying to do, and why', (v) => { beginEdit('chart-notes'); c.notes = v; scheduleSave(); })));
+
+  const an = S.an;
+  const stats = el('div', 'stats');
+  const stat = (n, l) => { const s = el('div', 'stat'); s.append(el('b', '', String(n)), el('span', '', l)); stats.append(s); };
+  stat(an.steps, an.steps === 1 ? 'step' : 'steps');
+  stat(an.starts.length, 'open from the start');
+  stat(an.longest, 'in the longest chain');
+  stat(an.subgoals.length, an.subgoals.length === 1 ? 'sub goal' : 'sub goals');
+  const sec = el('section', 'sec'); sec.append(el('h3', '', 'Summary'), stats); box.append(sec);
+
+  const chk = el('section', 'sec'); const h = el('h3', '', 'Checks'); if (an.issues.length) h.append(el('em', '', String(an.issues.length))); chk.append(h);
+  if (!an.issues.length) chk.append(el('p', 'ok', c.nodes.length > 1 ? 'Nothing to fix: no deadlocks, and every step leads to the end goal.' : 'Add steps and link them; problems will show up here.'));
+  else {
+    const ul = el('ul', 'issues');
+    for (const is of an.issues.slice(0, 40)) {
+      const li = el('li'); const b = el('button', 'issue ' + is.level); b.type = 'button';
+      b.innerHTML = is.level === 'error'
+        ? '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.2 13.2 12.3H.8z" fill="currentColor"/><path d="M7 5.2v3.3M7 10v.1" stroke="var(--surface)" stroke-width="1.5" stroke-linecap="round"/></svg>'
+        : '<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M7 4.2v3.4M7 9.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+      const t = el('span'); t.append(el('b', '', is.head + '. '), document.createTextNode(is.text)); b.append(t);
+      if (is.nodes.length) b.onclick = () => { select({ type: 'node', id: is.nodes[0] }); centerOn(is.nodes[0]); };
+      else b.style.cursor = 'default';
+      li.append(b); ul.append(li);
+    }
+    chk.append(ul);
+  }
+  box.append(chk);
+
+  if (!S.readOnly) {
+    const foot = el('div', 'foot');
+    const dup = el('button', 'btn small', 'Duplicate chart'); dup.type = 'button'; dup.onclick = () => duplicateChart(c);
+    const del = el('button', 'btn small danger', 'Delete chart'); del.type = 'button';
+    let armed = 0;
+    del.onclick = () => {
+      if (!armed) { del.classList.add('armed'); del.textContent = 'Click again to delete'; armed = setTimeout(() => { armed = 0; del.classList.remove('armed'); del.textContent = 'Delete chart'; }, 3500); return; }
+      clearTimeout(armed); deleteChart(c.id);
+    };
+    foot.append(dup, del); box.append(foot);
+  }
+}
+
+function nodePanel(box, c, n) {
+  const an = S.an, ro = S.readOnly;
+  panelHead(box, KINDS[n.kind].label, n.kind);
+
+  const seg = el('div', 'seg'); seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Kind of step');
+  for (const k of KIND_LIST) {
+    const b = el('button'); b.type = 'button'; b.setAttribute('aria-pressed', String(k === n.kind)); b.disabled = ro;
+    b.append(glyph(k), document.createTextNode(KINDS[k].label));
+    b.onclick = () => { if (k === n.kind) return; pushUndo(); if (n.title === KINDS[n.kind].title) n.title = KINDS[k].title; n.kind = k; scheduleSave(); render(); };
+    seg.append(b);
+  }
+  const fk = el('div', 'f'); fk.append(el('span', '', 'Kind'), seg); box.append(fk);
+
+  box.append(field('What happens', input('f-title', n.title, KINDS[n.kind].title, (v) => { beginEdit('title:' + n.id); n.title = v; scheduleSave(); refreshNode(n); })));
+
+  const r = el('div', 'row2');
+  const sc = input('f-scene', n.scene, 'Any', (v) => { beginEdit('scene:' + n.id); n.scene = v.trim(); scheduleSave(); refreshNode(n); }); sc.setAttribute('list', 'dl-scenes');
+  const wh = input('f-who', n.who, 'Nobody', (v) => { beginEdit('who:' + n.id); n.who = v.trim(); scheduleSave(); refreshNode(n); }); wh.setAttribute('list', 'dl-people');
+  r.append(field('Where', sc), field('Who', wh)); box.append(r);
+
+  const r2 = el('div', 'row2');
+  const when = el('select'); when.id = 'f-when'; when.disabled = ro;
+  for (const p of [''].concat(PHASES)) { const o = el('option', '', p ? p[0].toUpperCase() + p.slice(1) : (n.kind === 'phase' ? 'Choose…' : 'Any time')); o.value = p; if (p === n.when) o.selected = true; when.append(o); }
+  when.onchange = () => { pushUndo(); n.when = when.value; scheduleSave(); refreshNode(n); };
+  r2.append(field(n.kind === 'phase' ? 'Time of day' : 'Only at', when));
+  const st = el('select'); st.id = 'f-status'; st.disabled = ro;
+  for (const [v, l] of STATUSES) { const o = el('option', '', l); o.value = v; if (v === n.status) o.selected = true; st.append(o); }
+  st.onchange = () => { pushUndo(); n.status = st.value; scheduleSave(); refreshNode(n); };
+  r2.append(field('Status', st)); box.append(r2);
+
+  if (n.kind !== 'phase') box.append(field(KINDS[n.kind].idLabel, input('f-gid', n.gid, KINDS[n.kind].idPh, (v) => { beginEdit('gid:' + n.id); n.gid = v.trim(); scheduleSave(); refreshNode(n); }, 'mono'),
+    n.kind === 'item' ? 'One .tres per item in res://items/.'
+      : n.kind === 'combo' ? 'One .tres in res://items/, and the pair in ItemDB’s COMBINATIONS.'
+      : n.kind === 'setup' ? 'Saved in GameState.flags. Leave it empty if nothing needs checking.'
+      : 'Saved in GameState.flags.'));
+  box.append(field('Notes', textarea('f-notes', n.notes, 'Hints, the lines that point to it, how it fails', (v) => { beginEdit('notes:' + n.id); n.notes = v; scheduleSave(); })));
+
+  // needs
+  const preds = an.preds.get(n.id), succs = an.succs.get(n.id);
+  const needs = el('section', 'sec'); const h = el('h3', '', n.kind === 'combo' ? 'Made from' : 'Needs'); h.append(el('em', '', String(preds.length))); needs.append(h);
+  needs.append(linkList(preds, (p) => deleteEdge(p, n.id), preds.length ? ''
+    : n.kind === 'setup' ? 'Nothing: this is how things stand when the puzzle starts.'
+    : n.kind === 'combo' ? 'Nothing yet: add the items that go into it.'
+    : 'Nothing: the player can do it from the start.'));
+  if (!ro) {
+    const q = el('div', 'quick');
+    for (const k of KIND_LIST.filter((k) => k !== 'goal')) {
+      const b = el('button'); b.type = 'button'; b.title = `Add a new ${KINDS[k].label.toLowerCase()} step that this one needs`;
+      b.append(glyph(k), document.createTextNode(KINDS[k].label)); b.onclick = () => addLinked(n, k, 'need'); q.append(b);
+    }
+    const qf = el('div', 'f'); qf.append(el('span', 'help', 'Add a new step it needs:'), q); needs.append(qf);
+    needs.append(linkPicker('f-link-need', c, n, preds, 'Or link a step already on the chart…', (id) => addEdge(id, n.id)));
+  }
+  box.append(needs);
+
+  const opens = el('section', 'sec'); const h2 = el('h3', '', 'Opens'); h2.append(el('em', '', String(succs.length))); opens.append(h2);
+  opens.append(linkList(succs, (s) => deleteEdge(n.id, s), succs.length ? '' : n.kind === 'goal' ? 'Nothing: this is where the chart ends.' : 'Nothing yet.'));
+  if (!ro) {
+    const q = el('div', 'quick');
+    for (const [k, label] of [['action', 'Action it opens'], ['subgoal', 'Sub goal'], ['goal', 'End goal']]) {
+      const b = el('button'); b.type = 'button'; b.append(glyph(k), document.createTextNode(label));
+      b.onclick = () => addLinked(n, k, 'open'); q.append(b);
+    }
+    opens.append(q);
+    opens.append(linkPicker('f-link-open', c, n, succs, 'Or link to a step already on the chart…', (id) => addEdge(n.id, id)));
+  }
+  box.append(opens);
+
+  if (!ro) {
+    const foot = el('div', 'foot');
+    const del = el('button', 'btn small danger', 'Delete step'); del.type = 'button'; del.onclick = () => deleteNode(n.id);
+    foot.append(del); box.append(foot);
+  }
+}
+function linkList(ids, onRemove, emptyText) {
+  if (!ids.length) return el('p', 'none', emptyText);
+  const ul = el('ul', 'links'); const an = S.an;
+  for (const id of ids) {
+    const m = an.byId.get(id); if (!m) continue;
+    const li = el('li'); const go = el('button', 'go'); go.type = 'button';
+    go.append(glyph(m.kind), el('span', '', nodeTitle(m))); go.onclick = () => { select({ type: 'node', id }); centerOn(id); };
+    li.append(go);
+    if (!S.readOnly) { const x = el('button', 'x', '×'); x.type = 'button'; x.title = 'Remove this link'; x.setAttribute('aria-label', `Remove link to ${nodeTitle(m)}`); x.onclick = () => onRemove(id); li.append(x); }
+    ul.append(li);
+  }
+  return ul;
+}
+function linkPicker(id, c, n, existing, ph, onPick) {
+  const s = el('select'); s.id = id;
+  const o0 = el('option', '', ph); o0.value = ''; s.append(o0);
+  const ex = new Set(existing);
+  const others = c.nodes.filter((m) => m.id !== n.id && !ex.has(m.id)).sort((a, b) => nodeTitle(a).localeCompare(nodeTitle(b)));
+  for (const m of others) { const o = el('option', '', `${KINDS[m.kind].label}: ${nodeTitle(m)}`); o.value = m.id; s.append(o); }
+  s.disabled = !others.length;
+  s.onchange = () => { if (s.value) onPick(s.value); };
+  const f = el('div', 'f'); const l = el('label', '', ph); l.htmlFor = id; l.style.position = 'absolute'; l.style.width = '1px'; l.style.height = '1px'; l.style.overflow = 'hidden'; l.style.clip = 'rect(0 0 0 0)';
+  f.append(l, s); return f;
+}
+
+function edgePanel(box, c, e) {
+  const an = S.an, a = an.byId.get(e.from), b = an.byId.get(e.to);
+  panelHead(box, 'Link');
+  const p = el('p', 'edge-desc'); p.append(el('b', '', nodeTitle(a)), document.createTextNode(' has to happen before '), el('b', '', nodeTitle(b)), document.createTextNode('.'));
+  box.append(p);
+  if (an.cycEdges.has(e.from + '>' + e.to)) box.append(el('p', 'none', 'This link is part of a deadlock: following the arrows leads back to where they started.'));
+  const go = el('div', 'foot');
+  const ga = el('button', 'btn small', 'Show the first step'); ga.type = 'button'; ga.onclick = () => select({ type: 'node', id: a.id });
+  const gb = el('button', 'btn small', 'Show the second'); gb.type = 'button'; gb.onclick = () => select({ type: 'node', id: b.id });
+  go.append(ga, gb); box.append(go);
+  if (!S.readOnly) {
+    const foot = el('div', 'foot');
+    const rev = el('button', 'btn small', 'Reverse it'); rev.type = 'button';
+    rev.onclick = () => {
+      if (c.edges.some((m) => m.from === e.to && m.to === e.from)) { toast('Those two steps are already linked the other way.'); return; }
+      pushUndo(); const f = e.from; e.from = e.to; e.to = f; S.sel = { type: 'edge', from: e.from, to: e.to }; scheduleSave(); render();
+    };
+    const del = el('button', 'btn small danger', 'Delete link'); del.type = 'button'; del.onclick = () => deleteEdge(e.from, e.to);
+    foot.append(rev, del); box.append(foot);
+  }
+}
+
+function playPanel(box, c) {
+  panelHead(box, 'Play test');
+  box.append(el('p', 'none', 'Do the steps as the player would. The scene setup starts done, and a step opens once everything it needs is done. Click one with a dashed outline to do it.'));
+  const an = S.an, done = S.play.done;
+  const open = an.order.filter((n) => !done.has(n.id) && an.preds.get(n.id).every((p) => done.has(p)));
+  const s1 = el('section', 'sec'); const h1 = el('h3', '', 'Open now'); h1.append(el('em', '', String(open.length))); s1.append(h1);
+  if (!open.length) s1.append(el('p', 'none', 'Nothing.'));
+  else { const ul = el('ul', 'play-list'); ul.style.listStyle = 'disc'; for (const n of open) { const li = el('li'); const b = el('button', '', nodeTitle(n)); b.type = 'button'; b.onclick = () => playClick(n.id); li.append(b); ul.append(li); } s1.append(ul); }
+  box.append(s1);
+  const s2 = el('section', 'sec'); const h2 = el('h3', '', 'Done, in order'); h2.append(el('em', '', String(S.play.order.length))); s2.append(h2);
+  if (!S.play.order.length) s2.append(el('p', 'none', 'Nothing yet.'));
+  else { const ol = el('ol', 'play-list'); for (const id of S.play.order) { const n = an.byId.get(id); if (n) ol.append(el('li', '', `${nodeTitle(n)}${n.scene ? ' · ' + sceneName(n.scene) : ''}`)); } s2.append(ol); }
+  box.append(s2);
+}
+
+/* ------------------------------------------------------------------ chrome */
+function updateChrome() {
+  const c = cur(), app = $('#app');
+  $('#cur-name').textContent = c ? c.name || 'Untitled chart' : '';
+  const editable = !!c && !S.readOnly && !S.play;
+  $('#btn-add').disabled = !editable;
+  $('#btn-arrange').disabled = !editable;
+  $('#btn-arrange').setAttribute('aria-pressed', String(!!(c && c.auto)));
+  $('#mi-auto').textContent = c && c.auto ? 'Turn auto-arrange off' : 'Turn auto-arrange on';
+  $('#btn-undo').disabled = !editable || !(S.undo.get(c.id) || []).length;
+  $('#btn-redo').disabled = !editable || !(S.redo.get(c.id) || []).length;
+  $('#btn-play').disabled = !c || !c.nodes.length;
+  $('#btn-play').setAttribute('aria-pressed', String(!!S.play));
+  $('#btn-info').disabled = !c;
+  $('#btn-more').disabled = !c;
+  app.classList.toggle('drawer-open', S.drawer);
+  app.classList.toggle('sheet-open', !!c && (S.sheet || (!!S.sel && !S.play)));
+  show($('#scrim'), S.drawer && isDrawer());
+  updateStatus();
+}
+function updateStatus() {
+  const b = $('#status'), t = $('#status-text');
+  let s = 'ok', text = 'Saved', tip = 'Every change is saved.';
+  if (S.dbState === 'off') { s = 'off'; text = 'Not saving'; tip = 'Saving is off in this view. Open the page in Claude to keep your charts.'; }
+  else if (S.readOnly) { s = 'ok'; text = 'View only'; tip = 'You can look at the charts and play-test them, but not change them.'; }
+  else if (S.saveErr) { s = 'err'; text = 'Not saved'; tip = S.saveErr; }
+  else if (S.inflight.size || S.dirty.size) { s = 'busy'; text = 'Saving…'; tip = 'Saving your changes.'; }
+  else if (!S.loaded) { s = 'busy'; text = 'Loading'; tip = 'Loading your charts.'; }
+  b.dataset.s = s; t.textContent = text; b.title = tip; b.setAttribute('aria-label', `${text}. ${tip}`);
+}
+function render() { renderSide(); renderCanvas(); renderInspector(); updateChrome(); }
+function select(sel) {
+  S.sel = sel;
+  if (sel) S.sheet = false;
+  renderCanvas(); renderInspector(); updateChrome();
+}
+
+/* ------------------------------------------------------------------ editing */
+function pushUndo() {
+  const c = cur(); if (!c) return;
+  const u = S.undo.get(c.id) || []; u.push(snapshotOf(c)); if (u.length > 80) u.shift();
+  S.undo.set(c.id, u); S.redo.set(c.id, []); S.lastEdit = null;
+}
+function restore(c, json) {
+  const d = normalize(c.id, JSON.parse(json));
+  c.name = d.name; c.act = d.act; c.notes = d.notes; c.nodes = d.nodes; c.edges = d.edges;
+  if (S.sel && S.sel.type === 'node' && !c.nodes.some((n) => n.id === S.sel.id)) S.sel = null;
+  if (S.sel && S.sel.type === 'edge' && !c.edges.some((e) => e.from === S.sel.from && e.to === S.sel.to)) S.sel = null;
+  scheduleSave(); render();
+}
+function undo() { const c = cur(); if (!c || S.play || S.readOnly) return; const u = S.undo.get(c.id) || []; if (!u.length) return; const r = S.redo.get(c.id) || []; r.push(snapshotOf(c)); S.redo.set(c.id, r); S.lastEdit = null; restore(c, u.pop()); }
+function redo() { const c = cur(); if (!c || S.play || S.readOnly) return; const r = S.redo.get(c.id) || []; if (!r.length) return; const u = S.undo.get(c.id) || []; u.push(snapshotOf(c)); S.undo.set(c.id, u); S.lastEdit = null; restore(c, r.pop()); }
+
+function freeSpot(c, x, y) {
+  let tries = 0;   // move sideways, so a new step stays in line with its row
+  while (tries < 30 && c.nodes.some((n) => Math.abs(n.x - x) < NODE_W - 20 && Math.abs(n.y - y) < 60)) { x += NODE_W + 28; tries++; }
+  return { x, y };
+}
+// Line a step up with others that are almost in line: same column, or same row by top edge or by middle.
+function snapPos(c, id, x, y, thr) {
+  const h = nodeH(id);
+  let bx = null, by = null;
+  for (const m of c.nodes) {
+    if (m.id === id) continue;
+    const dx = Math.abs(m.x - x);
+    if (dx <= thr && (!bx || dx < bx.d)) bx = { d: dx, v: m.x };
+    const dt = Math.abs(m.y - y);
+    if (dt <= thr && (!by || dt < by.d)) by = { d: dt, v: m.y, mode: 'top' };
+    const hm = nodeH(m.id), dc = Math.abs(m.y + hm / 2 - (y + h / 2));
+    if (dc <= thr && (!by || dc < by.d - 0.01)) by = { d: dc, v: m.y + hm / 2 - h / 2, mode: 'mid' };
+  }
+  return { x: Math.round(bx ? bx.v : x), y: Math.round(by ? by.v : y), sx: !!bx, sy: by ? by.mode : '' };
+}
+function drawGuides(c, n, snap) {
+  guideG.textContent = '';
+  if (!snap || (!snap.sx && !snap.sy)) return;
+  const pad = 18;
+  if (snap.sx) {
+    const col = c.nodes.filter((m) => Math.abs(m.x - n.x) < 1);
+    const y0 = Math.min(...col.map((m) => m.y)) - pad, y1 = Math.max(...col.map((m) => m.y + nodeH(m.id))) + pad;
+    guideG.append(svgEl('line', { x1: n.x + NODE_W / 2, y1: y0, x2: n.x + NODE_W / 2, y2: y1, class: 'guide' }));
+  }
+  if (snap.sy) {
+    const key = snap.sy === 'top' ? (m) => m.y : (m) => m.y + nodeH(m.id) / 2;
+    const v = key(n);
+    const row = c.nodes.filter((m) => Math.abs(key(m) - v) < 1);
+    const x0 = Math.min(...row.map((m) => m.x)) - pad, x1 = Math.max(...row.map((m) => m.x + NODE_W)) + pad;
+    guideG.append(svgEl('line', { x1: x0, y1: v, x2: x1, y2: v, class: 'guide' }));
+  }
+}
+function addNodeAt(kind, x, y) {
+  const c = cur(); if (!c || S.readOnly || S.play) return null;
+  pushUndo();
+  const s = snapPos(c, null, x, y, 24);
+  const p = freeSpot(c, s.x, s.y);
+  const n = blankNode(kind, p.x, p.y); c.nodes.push(n);
+  scheduleSave(); S.sel = { type: 'node', id: n.id }; S.sheet = false; render(); focusTitle();
+  return n;
+}
+function addAtCenter(kind) {
+  const r = stage.getBoundingClientRect();
+  const w = toWorld(r.left + r.width / 2, r.top + r.height * (isNarrow() ? 0.3 : 0.45));
+  addNodeAt(kind, w.x - NODE_W / 2, w.y - 40);
+}
+function addLinked(n, kind, dir) {
+  const c = cur(); if (!c || S.readOnly) return;
+  pushUndo();
+  const count = dir === 'need' ? S.an.preds.get(n.id).length : S.an.succs.get(n.id).length;
+  const off = count === 0 ? 0 : (count % 2 ? 1 : -1) * Math.ceil(count / 2);
+  const y = dir === 'need' ? n.y - 150 : n.y + nodeH(n.id) + 70;
+  const s = snapPos(c, null, n.x + off * (NODE_W + 28), y, 24);
+  const p = freeSpot(c, s.x, s.y);
+  const m = blankNode(kind, p.x, p.y); c.nodes.push(m);
+  c.edges.push(dir === 'need' ? { from: m.id, to: n.id } : { from: n.id, to: m.id });
+  scheduleSave(); requestLayout({ anchor: n.id }); S.sel = { type: 'node', id: m.id }; render(); focusTitle();
+}
+function focusTitle() {
+  if (isNarrow()) return;
+  requestAnimationFrame(() => { const i = $('#f-title'); if (i) { i.focus(); i.select(); } });
+}
+function addEdge(from, to) {
+  const c = cur(); if (!c || S.readOnly || from === to) return;
+  if (c.edges.some((e) => e.from === from && e.to === to)) { toast('Those steps are already linked.'); return; }
+  pushUndo();
+  c.edges.push({ from, to });
+  scheduleSave(); render();
+  if (S.an.cycEdges.has(from + '>' + to)) toast('That link makes a loop: those steps now need each other.');
+}
+function deleteEdge(from, to) {
+  const c = cur(); if (!c || S.readOnly) return;
+  pushUndo();
+  c.edges = c.edges.filter((e) => !(e.from === from && e.to === to));
+  if (S.sel && S.sel.type === 'edge') S.sel = null;
+  scheduleSave(); render();
+}
+function deleteNode(id) {
+  const c = cur(); if (!c || S.readOnly) return;
+  pushUndo();
+  const n = c.nodes.find((m) => m.id === id);
+  c.nodes = c.nodes.filter((m) => m.id !== id);
+  c.edges = c.edges.filter((e) => e.from !== id && e.to !== id);
+  S.sel = null; scheduleSave(); render();
+  if (n) toast(`Deleted “${nodeTitle(n)}”. Ctrl+Z brings it back.`);
+}
+function deleteSelection() {
+  if (!S.sel) return;
+  if (S.sel.type === 'node') deleteNode(S.sel.id); else deleteEdge(S.sel.from, S.sel.to);
+}
+
+/* ------------------------------------------------------------------ layout */
+// Auto-arrange: a layered layout (ELK) that keeps crossings down and routes every link around the steps.
+// Steps keep their current left-to-right order where that costs no crossings, so dragging one sideways moves it.
+const ELK_OPTS = {
+  'elk.algorithm': 'layered',
+  'elk.direction': 'DOWN',
+  'elk.edgeRouting': 'ORTHOGONAL',
+  'elk.spacing.nodeNode': '36',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '64',
+  'elk.spacing.edgeNode': '18',
+  'elk.spacing.edgeEdge': '12',
+  'elk.layered.spacing.edgeNodeBetweenLayers': '20',
+  'elk.layered.spacing.edgeEdgeBetweenLayers': '12',
+  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+  'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+  'elk.layered.crossingMinimization.greedySwitch.type': 'TWO_SIDED',
+  'elk.layered.thoroughness': '100',
+  'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+  'elk.separateConnectedComponents': 'true',
+  'elk.spacing.componentComponent': '64',
+  'elk.padding': '[top=0,left=0,bottom=0,right=0]',
+};
+let elkInst = null;
+function getElk() {
+  if (!elkInst && window.ELK) { try { elkInst = new window.ELK(); } catch (e) { elkInst = null; } }
+  return elkInst;
+}
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+async function computeLayout(c) {
+  const H = new Map(c.nodes.map((n) => [n.id, nodeH(n.id)]));
+  const edges = c.edges.filter((e) => H.has(e.from) && H.has(e.to) && e.from !== e.to);
+  const order = [...c.nodes].sort((a, b) => a.x - b.x || a.y - b.y);
+  const xOf = new Map(c.nodes.map((n) => [n.id, n.x]));
+  const sorted = [...edges].sort((a, b) => xOf.get(a.from) - xOf.get(b.from) || xOf.get(a.to) - xOf.get(b.to));
+  const elk = getElk();
+  if (elk) {
+    try {
+      const keyOf = new Map(sorted.map((e, i) => ['__e' + i, e.from + '>' + e.to]));
+      const res = await elk.layout({
+        id: '__root', layoutOptions: ELK_OPTS,
+        children: order.map((n) => ({ id: n.id, width: NODE_W, height: H.get(n.id) })),
+        edges: sorted.map((e, i) => ({ id: '__e' + i, sources: [e.from], targets: [e.to] })),
+      });
+      const pos = new Map(), routes = new Map();
+      for (const ch of res.children || []) pos.set(ch.id, { x: ch.x, y: ch.y });
+      for (const ed of res.edges || []) {
+        const s = ed.sections && ed.sections[0];
+        if (s && keyOf.has(ed.id)) routes.set(keyOf.get(ed.id), [s.startPoint].concat(s.bendPoints || [], [s.endPoint]).map((p) => ({ x: p.x, y: p.y })));
+      }
+      if (pos.size) return { pos, routes, H };
+    } catch (e) { /* fall back to dagre */ }
+  }
+  if (window.dagre && window.dagre.graphlib) {
+    try {
+      const g = new window.dagre.graphlib.Graph();
+      g.setGraph({ rankdir: 'TB', nodesep: 36, ranksep: 64, edgesep: 14 });
+      g.setDefaultEdgeLabel(() => ({}));
+      order.forEach((n) => g.setNode(n.id, { width: NODE_W, height: H.get(n.id) }));
+      sorted.forEach((e) => g.setEdge(e.from, e.to));
+      window.dagre.layout(g);
+      const pos = new Map(), routes = new Map();
+      order.forEach((n) => { const p = g.node(n.id); pos.set(n.id, { x: p.x - NODE_W / 2, y: p.y - H.get(n.id) / 2 }); });
+      sorted.forEach((e) => { const ed = g.edge(e.from, e.to); if (ed && ed.points) routes.set(e.from + '>' + e.to, ed.points.map((p) => ({ x: p.x, y: p.y }))); });
+      return { pos, routes, H };
+    } catch (e) { /* fall back to the simple layout */ }
+  }
+  return { pos: simpleLayout(c, H), routes: new Map(), H };
+}
+// Last resort: each step one row below the deepest thing it needs.
+function simpleLayout(c, H) {
+  const an = analyze(c); const layer = new Map();
+  for (const n of an.order) { let l = 0; for (const p of an.preds.get(n.id)) if (layer.has(p) && !an.cycEdges.has(p + '>' + n.id)) l = Math.max(l, layer.get(p) + 1); layer.set(n.id, l); }
+  const rows = []; for (const n of an.order) { const l = layer.get(n.id); (rows[l] = rows[l] || []).push(n); }
+  const out = new Map(); let y = 0;
+  const avgX = (n) => { const ps = an.preds.get(n.id).filter((p) => out.has(p)); return ps.length ? ps.reduce((s, p) => s + out.get(p).x, 0) / ps.length : n.x; };
+  for (const row of rows) {
+    if (!row) continue;
+    row.sort((a, b) => avgX(a) - avgX(b));
+    const w = row.length * NODE_W + (row.length - 1) * 36;
+    row.forEach((n, i) => out.set(n.id, { x: Math.round(-w / 2 + i * (NODE_W + 36)), y }));
+    y += Math.max(...row.map((n) => H.get(n.id))) + 64;
+  }
+  return out;
+}
+function requestLayout(opts) {
+  const c = cur(); if (!c || !c.auto) return;
+  if (opts) S.layoutOpts = Object.assign(S.layoutOpts || {}, opts);
+  clearTimeout(S.layoutTimer);
+  S.layoutTimer = setTimeout(runLayout, opts && opts.now ? 0 : 120);
+}
+async function runLayout() {
+  const c = cur(); if (!c || !c.auto || !c.nodes.length) return;
+  if (S.gesture) { requestLayout(); return; }   // wait until the drag is over
+  const seq = ++S.layoutSeq;
+  const opts = S.layoutOpts || {}; S.layoutOpts = null;
+  let res = null;
+  try { res = await computeLayout(c); } catch (e) { res = null; }
+  if (!res || seq !== S.layoutSeq || cur() !== c || !c.auto) return;
+  if (S.gesture) { S.layoutOpts = opts; requestLayout(); return; }
+  // keep one step where it was, so the chart grows around what you are working on
+  const has = (id) => id && res.pos.has(id) && c.nodes.some((n) => n.id === id);
+  let anchor = has(opts.anchor) ? opts.anchor : null;
+  if (!anchor) { const g = c.nodes.find((n) => n.kind === 'goal' && res.pos.has(n.id)); anchor = g ? g.id : (c.nodes.find((n) => res.pos.has(n.id)) || {}).id; }
+  const an = c.nodes.find((n) => n.id === anchor), ap = res.pos.get(anchor);
+  const dx = an && ap ? an.x - ap.x : 0, dy = an && ap ? an.y - ap.y : 0;
+  const pos = new Map(); for (const [id, p] of res.pos) pos.set(id, { x: Math.round(p.x + dx), y: Math.round(p.y + dy) });
+  const routes = new Map(); for (const [k, pts] of res.routes) routes.set(k, pts.map((p) => ({ x: p.x + dx, y: p.y + dy })));
+  applyLayout(c, pos, routes, res.H, opts);
+  if (c.nodes.some((n) => !pos.has(n.id))) requestLayout();   // steps added while it was working
+}
+function viewToShow(p, h) {
+  const r = stage.getBoundingClientRect(), v = { ...S.view }, m = 40;
+  const sheet = isNarrow() && $('#app').classList.contains('sheet-open') ? r.height * 0.58 : 0;
+  const sx = p.x * v.k + v.x, sy = p.y * v.k + v.y, sw = NODE_W * v.k, sh = h * v.k;
+  if (sx < m) v.x += m - sx; else if (sx + sw > r.width - m) v.x -= sx + sw - (r.width - m);
+  const bottom = r.height - m - sheet;
+  if (sy < m) v.y += m - sy; else if (sy + sh > bottom) v.y -= Math.min(sy - m, sy + sh - bottom);
+  return v;
+}
+function applyLayout(c, target, routes, H, opts) {
+  const from = new Map(c.nodes.map((n) => [n.id, { x: n.x, y: n.y }]));
+  const moved = c.nodes.some((n) => { const p = target.get(n.id); return p && (Math.abs(p.x - n.x) > 0.5 || Math.abs(p.y - n.y) > 0.5); });
+  const v0 = { ...S.view };
+  let v1 = v0;
+  if (opts.fit) v1 = fitFor(c.nodes.filter((n) => target.has(n.id)).map((n) => ({ x: target.get(n.id).x, y: target.get(n.id).y, h: H.get(n.id) })));
+  else if (S.sel && S.sel.type === 'node' && target.has(S.sel.id)) v1 = viewToShow(target.get(S.sel.id), H.get(S.sel.id));
+  const done = () => {
+    S.animating = false; stage.classList.remove('relayout');
+    for (const n of c.nodes) { const p = target.get(n.id); if (p) { n.x = p.x; n.y = p.y; } }
+    S.routes = routes; S.routesChart = c.id;
+    S.layoutPos = new Map(c.nodes.filter((n) => H.has(n.id)).map((n) => [n.id, { x: n.x, y: n.y, h: H.get(n.id) }]));
+    S.view = v1; applyView();
+    renderCanvas();
+    if (moved) scheduleSave(undefined, true);
+  };
+  cancelAnimationFrame(S.animFrame);
+  const still = !moved && v1.x === v0.x && v1.y === v0.y && v1.k === v0.k;
+  if (still || opts.animate === false || reduceMotion()) { done(); return; }
+  S.animating = true; stage.classList.add('relayout');
+  const t0 = performance.now(), D = 280;
+  const step = (t) => {
+    if (cur() !== c) { S.animating = false; stage.classList.remove('relayout'); return; }
+    const p = Math.min(1, (t - t0) / D), e = 1 - Math.pow(1 - p, 3);
+    for (const n of c.nodes) {
+      const a = from.get(n.id), b = target.get(n.id); if (!a || !b) continue;
+      n.x = a.x + (b.x - a.x) * e; n.y = a.y + (b.y - a.y) * e;
+      const ne = nodeEls.get(n.id); if (ne) { ne.style.left = n.x + 'px'; ne.style.top = n.y + 'px'; }
+    }
+    S.view = { k: v0.k + (v1.k - v0.k) * e, x: v0.x + (v1.x - v0.x) * e, y: v0.y + (v1.y - v0.y) * e }; applyView();
+    drawEdges();
+    if (p < 1) S.animFrame = requestAnimationFrame(step); else done();
+  };
+  S.animFrame = requestAnimationFrame(step);
+}
+function toggleAuto() {
+  const c = cur(); if (!c || S.readOnly || S.play) return;
+  c.auto = !c.auto;
+  scheduleSave(undefined, true);
+  if (c.auto) requestLayout({ now: true });
+  renderOverlays(); updateChrome();
+  toast(c.auto ? 'Auto-arrange is on: the chart lays itself out as you work.' : 'Auto-arrange is off: place the steps where you like.');
+}
+
+/* ------------------------------------------------------------------ play test */
+function startPlay() {
+  const c = cur(); if (!c || !c.nodes.length) return;
+  S.play = { done: new Set(), order: [], maxOpen: 0, msg: '' };
+  S.sel = null; S.drawer = false;
+  analyze(c).given.forEach((id) => S.play.done.add(id));   // the scene setup is already in place
+  renderCanvas(); S.play.maxOpen = countOpen(); render();
+}
+function stopPlay() { S.play = null; S.sheet = false; render(); }
+function countOpen() { const c = cur(), an = S.an, done = S.play.done; return c.nodes.filter((n) => !done.has(n.id) && an.preds.get(n.id).every((p) => done.has(p))).length; }
+let playMsgTimer = 0;
+function playClick(id) {
+  const c = cur(), an = S.an; if (!S.play || !c) return;
+  if (S.play.done.has(id)) return;
+  const missing = an.preds.get(id).filter((p) => !S.play.done.has(p));
+  if (missing.length) {
+    S.play.msg = `Not yet. First: ${missing.map((p) => nodeTitle(an.byId.get(p))).join('; ')}.`;
+    renderOverlays();
+    const e = nodeEls.get(id); if (e) { e.classList.remove('shake'); void e.offsetWidth; e.classList.add('shake'); }
+    clearTimeout(playMsgTimer); playMsgTimer = setTimeout(() => { if (S.play) { S.play.msg = ''; renderOverlays(); } }, 3200);
+    return;
+  }
+  S.play.done.add(id); S.play.order.push(id); S.play.msg = '';
+  renderCanvas(); S.play.maxOpen = Math.max(S.play.maxOpen, countOpen());
+  renderOverlays(); renderInspector();
+}
+function playUndo() { if (!S.play || !S.play.order.length) return; const id = S.play.order.pop(); S.play.done.delete(id); S.play.msg = ''; render(); }
+
+/* ------------------------------------------------------------------ pointer input */
+const pointers = new Map();
+stage.addEventListener('pointerdown', (ev) => {
+  if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+  if (ev.target.closest('.stage-ui')) return;
+  closeMenus();
+  pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  try { stage.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+  if (pointers.size === 2) {
+    if (S.gesture && S.gesture.type === 'drag' && S.gesture.moved) { scheduleSave(); }
+    const [a, b] = [...pointers.values()];
+    const r = stage.getBoundingClientRect();
+    S.gesture = { type: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, k0: S.view.k, mx: (a.x + b.x) / 2 - r.left, my: (a.y + b.y) / 2 - r.top, v0: { ...S.view } };
+    tempEdge.setAttribute('hidden', '');
+    return;
+  }
+  if (pointers.size > 2) return;
+  const c = cur(); if (!c) return;
+  const t = ev.target;
+  const port = t.closest('.port'), nodeEl = t.closest('.node'), hit = t.closest('.edge-hit');
+  if (port && nodeEl && !S.play && !S.readOnly) {
+    S.gesture = { type: 'link', from: nodeEl.dataset.id, sx: ev.clientX, sy: ev.clientY, over: null };
+  } else if (nodeEl) {
+    const id = nodeEl.dataset.id;
+    if (S.play) { S.gesture = { type: 'tap', id, sx: ev.clientX, sy: ev.clientY }; return; }
+    const n = c.nodes.find((m) => m.id === id); if (!n) return;
+    if (!S.sel || S.sel.type !== 'node' || S.sel.id !== id) select({ type: 'node', id });
+    S.gesture = S.readOnly ? null : { type: 'drag', id, sx: ev.clientX, sy: ev.clientY, ox: n.x, oy: n.y, moved: false };
+  } else if (hit && !S.play) {
+    select({ type: 'edge', from: hit.getAttribute('data-from'), to: hit.getAttribute('data-to') });
+    S.gesture = null;
+  } else {
+    S.gesture = { type: 'pan', sx: ev.clientX, sy: ev.clientY, vx: S.view.x, vy: S.view.y, moved: false };
+  }
+});
+stage.addEventListener('pointermove', (ev) => {
+  if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  const g = S.gesture; if (!g) return;
+  const c = cur(); if (!c) return;
+  if (g.type === 'pinch') {
+    if (pointers.size < 2) return;
+    const [a, b] = [...pointers.values()];
+    const r = stage.getBoundingClientRect();
+    const k = clamp(g.k0 * (Math.hypot(a.x - b.x, a.y - b.y) / g.d0), 0.25, 2);
+    const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+    const wx = (g.mx - g.v0.x) / g.v0.k, wy = (g.my - g.v0.y) / g.v0.k;
+    S.view = { k, x: mx - wx * k, y: my - wy * k }; applyView();
+  } else if (g.type === 'pan') {
+    const dx = ev.clientX - g.sx, dy = ev.clientY - g.sy;
+    if (!g.moved && Math.hypot(dx, dy) < 4) return;
+    g.moved = true; stage.classList.add('panning');
+    S.view.x = g.vx + dx; S.view.y = g.vy + dy; applyView();
+  } else if (g.type === 'drag') {
+    const dx = (ev.clientX - g.sx) / S.view.k, dy = (ev.clientY - g.sy) / S.view.k;
+    if (!g.moved && Math.hypot(dx, dy) * S.view.k < 4) return;
+    if (!g.moved) { g.moved = true; pushUndo(); }
+    const n = c.nodes.find((m) => m.id === g.id); if (!n) return;
+    let nx = Math.round(g.ox + dx), ny = Math.round(g.oy + dy), snap = null;
+    if (!c.auto && !ev.shiftKey) { snap = snapPos(c, n.id, nx, ny, 10 / S.view.k); nx = snap.x; ny = snap.y; }
+    n.x = nx; n.y = ny;
+    const e = nodeEls.get(n.id); if (e) { e.style.left = n.x + 'px'; e.style.top = n.y + 'px'; }
+    drawEdges(); drawGuides(c, n, snap);
+  } else if (g.type === 'link') {
+    const n = c.nodes.find((m) => m.id === g.from); if (!n) return;
+    const w = toWorld(ev.clientX, ev.clientY);
+    tempEdge.setAttribute('d', pathD(n.x + NODE_W / 2, n.y + nodeH(n.id) + 1, w.x, w.y));
+    tempEdge.removeAttribute('hidden');
+    const under = document.elementFromPoint(ev.clientX, ev.clientY);
+    const over = under && under.closest('.node');
+    const id = over && over.dataset.id !== g.from ? over.dataset.id : null;
+    if (id !== g.over) { if (g.over && nodeEls.get(g.over)) nodeEls.get(g.over).classList.remove('drop'); if (id) nodeEls.get(id).classList.add('drop'); g.over = id; }
+  }
+});
+function endPointer(ev, cancelled) {
+  pointers.delete(ev.pointerId);
+  const g = S.gesture; if (!g) return;
+  if (g.type === 'pinch') { if (pointers.size < 2) S.gesture = null; return; }
+  S.gesture = null; stage.classList.remove('panning'); guideG.textContent = '';
+  const c = cur(); if (!c || cancelled) { tempEdge.setAttribute('hidden', ''); if (g.type === 'drag' && g.moved) { scheduleSave(); renderCanvas(); } return; }
+  if (g.type === 'pan') { if (!g.moved && (S.sel || S.sheet)) { S.sheet = false; select(null); } }
+  else if (g.type === 'drag') { if (g.moved) { scheduleSave(); renderCanvas(); } }
+  else if (g.type === 'tap') { if (Math.hypot(ev.clientX - g.sx, ev.clientY - g.sy) < 8) playClick(g.id); }
+  else if (g.type === 'link') {
+    tempEdge.setAttribute('hidden', '');
+    if (g.over && nodeEls.get(g.over)) nodeEls.get(g.over).classList.remove('drop');
+    if (g.over) addEdge(g.from, g.over);
+    else if (Math.hypot(ev.clientX - g.sx, ev.clientY - g.sy) > 30) {
+      const n = c.nodes.find((m) => m.id === g.from);
+      const w = toWorld(ev.clientX, ev.clientY);
+      pushUndo();
+      const s = snapPos(c, null, w.x - NODE_W / 2, w.y, 24);
+      const m = blankNode('action', s.x, s.y); c.nodes.push(m); c.edges.push({ from: n.id, to: m.id });
+      scheduleSave(); requestLayout({ anchor: n.id }); S.sel = { type: 'node', id: m.id }; render(); focusTitle();
+    }
+  }
+}
+stage.addEventListener('pointerup', (ev) => endPointer(ev, false));
+stage.addEventListener('pointercancel', (ev) => endPointer(ev, true));
+stage.addEventListener('wheel', (ev) => {
+  if (!cur()) return;
+  ev.preventDefault();
+  const r = stage.getBoundingClientRect();
+  // the wheel zooms in and out around the pointer (a trackpad pinch arrives as ctrl + wheel)
+  const unit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? 400 : 1;
+  const dy = (ev.deltaY || 0) * unit;
+  const f = clamp(Math.exp(-dy * (ev.ctrlKey ? 0.01 : 0.0018)), 0.6, 1.6);
+  zoomAt(ev.clientX - r.left, ev.clientY - r.top, f);
+}, { passive: false });
+stage.addEventListener('dblclick', (ev) => {
+  const c = cur(); if (!c || S.play || S.readOnly) return;
+  if (ev.target.closest('.stage-ui')) return;
+  const under = document.elementFromPoint(ev.clientX, ev.clientY);
+  const nodeEl = under && under.closest('.node');
+  if (nodeEl) { const i = $('#f-title'); if (i) { i.focus(); i.select(); } return; }
+  if (under && under.closest('.edge-hit')) return;
+  const w = toWorld(ev.clientX, ev.clientY);
+  addNodeAt('action', w.x - NODE_W / 2, w.y - 30);
+});
+nodesLayer.addEventListener('keydown', (ev) => {
+  const nodeEl = ev.target.closest && ev.target.closest('.node'); if (!nodeEl) return;
+  if (ev.key === 'Enter' || ev.key === ' ') {
+    ev.preventDefault();
+    if (S.play) playClick(nodeEl.dataset.id); else select({ type: 'node', id: nodeEl.dataset.id });
+  }
+});
+
+/* ------------------------------------------------------------------ menus, keys, buttons */
+function closeMenus() { document.querySelectorAll('.menu').forEach((m) => m.setAttribute('hidden', '')); document.querySelectorAll('[aria-haspopup]').forEach((b) => b.setAttribute('aria-expanded', 'false')); }
+function toggleMenu(btn, menu) { const open = menu.hasAttribute('hidden'); closeMenus(); if (open) { menu.removeAttribute('hidden'); btn.setAttribute('aria-expanded', 'true'); const f = menu.querySelector('.mi:not([hidden])'); if (f && document.activeElement === btn) f.focus({ preventScroll: true }); } }
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.menu-wrap')) closeMenus(); }, true);
+$('#btn-add').onclick = () => toggleMenu($('#btn-add'), $('#menu-add'));
+$('#btn-more').onclick = () => toggleMenu($('#btn-more'), $('#menu-more'));
+$('#menu-more').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]'); if (!b) return; closeMenus();
+  const a = b.dataset.act;
+  if (a === 'arrange') toggleAuto(); else if (a === 'undo') undo(); else if (a === 'redo') redo(); else if (a === 'fit') fitView();
+  else if (a === 'copy-json') copyText(JSON.stringify(exportJson(), null, 2), 'Copied the chart as JSON.', 'Chart as JSON');
+  else if (a === 'copy-walk') copyText(walkthrough(), 'Copied the walkthrough.', 'Walkthrough');
+});
+$('#btn-arrange').onclick = toggleAuto;
+$('#btn-undo').onclick = undo;
+$('#btn-redo').onclick = redo;
+$('#btn-play').onclick = () => (S.play ? stopPlay() : startPlay());
+$('#btn-info').onclick = () => { S.sheet = !S.sheet; if (S.sheet) S.sel = null; renderCanvas(); renderInspector(); updateChrome(); };
+$('#btn-new').onclick = newChart;
+$('#btn-drawer').onclick = () => { S.drawer = !S.drawer; updateChrome(); };
+$('#scrim').onclick = () => { S.drawer = false; updateChrome(); };
+$('#z-in').onclick = () => zoomCenter(1.2);
+$('#z-out').onclick = () => zoomCenter(1 / 1.2);
+$('#z-fit').onclick = fitView;
+$('#status').onclick = () => toast($('#status').title);
+$('#modal-close').onclick = closeModal;
+$('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal') closeModal(); });
+function closeModal() { show($('#modal'), false); }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (!$('#modal').hasAttribute('hidden')) { closeModal(); return; }
+    if (document.querySelector('.menu:not([hidden])')) { closeMenus(); return; }
+    if (S.drawer) { S.drawer = false; updateChrome(); return; }
+    if (S.sel || S.sheet) { S.sheet = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); select(null); }
+    return;
+  }
+  const t = e.target;
+  const typing = t && t.closest && t.closest('input, textarea, select, [contenteditable]');
+  const mod = e.ctrlKey || e.metaKey;
+  if (typing) return;
+  if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+  if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
+  if (mod) return;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && S.sel && !S.play && !S.readOnly) { e.preventDefault(); deleteSelection(); }
+  else if (e.key === 'f' || e.key === 'F') fitView();
+});
+matchMedia('(max-width: 999px)').addEventListener('change', () => { if (!isDrawer()) S.drawer = false; updateChrome(); });
+
+/* ------------------------------------------------------------------ export */
+function exportJson() {
+  const c = cur(); const d = serialize(c);
+  return { chart: c.name, act: c.act, notes: c.notes,
+    steps: d.nodes.map((n) => ({ id: n.id, kind: n.kind, title: n.title, scene: n.scene, who: n.who, when: n.when, game_id: n.gid, status: n.status, notes: n.notes, needs: c.edges.filter((e) => e.to === n.id).map((e) => e.from) })),
+  };
+}
+function walkthrough() {
+  const c = cur(), an = analyze(c);
+  const nr = new Map(an.order.map((n, i) => [n.id, i + 1]));
+  const actTitle = (ACTS.find((a) => a[0] === c.act) || [0, ''])[1];
+  const lines = [c.name, `Act ${c.act}: ${actTitle}`, ''];
+  if (c.notes.trim()) lines.push(c.notes.trim(), '');
+  for (const n of an.order) {
+    lines.push(`${nr.get(n.id)}. ${nodeTitle(n)} (${KINDS[n.kind].label}${n.status !== 'idea' ? ', ' + STATUS_LABEL[n.status].toLowerCase() : ''})`);
+    const meta = [sceneName(n.scene), personName(n.who), n.when, n.gid && n.kind !== 'phase' ? n.gid : ''].filter(Boolean).join(' · ');
+    if (meta) lines.push('   ' + meta);
+    const ps = an.preds.get(n.id);
+    if (ps.length) lines.push('   needs: ' + ps.map((p) => nr.get(p)).sort((a, b) => a - b).join(', '));
+    if (n.notes.trim()) lines.push('   ' + n.notes.trim().replace(/\n/g, '\n   '));
+  }
+  if (an.issues.length) { lines.push('', 'Checks:'); for (const i of an.issues) lines.push(`- ${i.head}. ${i.text}`); }
+  return lines.join('\n');
+}
+function copyText(text, okMsg, title) {
+  const fallback = () => {
+    $('#modal-title').textContent = title; $('#modal-area').value = text; show($('#modal'), true);
+    requestAnimationFrame(() => { const a = $('#modal-area'); a.focus(); a.select(); });
+  };
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) { fallback(); return; }
+    navigator.clipboard.writeText(text).then(() => toast(okMsg), fallback);
+  } catch (e) { fallback(); }
+}
+
+/* ------------------------------------------------------------------ charts */
+function openChart(id) {
+  if (S.currentId && S.currentId !== id) { flushNow(S.currentId); S.views.set(S.currentId, { ...S.view }); }
+  S.currentId = id; S.sel = null; S.play = null; S.sheet = false; S.lastEdit = null;
+  lsSet(LS_LAST, id);
+  renderCanvas();
+  const v = S.views.get(id);
+  if (v) { S.view = { ...v }; applyView(); } else fitView();
+  requestLayout({ now: true, fit: !v, animate: false });
+  renderSide(); renderInspector(); updateChrome();
+}
+function newChart() {
+  if (S.readOnly) return;
+  let id;
+  try { id = S.db ? S.db.collection('charts').doc().id : null; } catch (e) { id = null; }
+  if (!id) { id = 'local-' + Math.random().toString(36).slice(2, 10); S.localOnly.add(id); }
+  const goal = blankNode('goal', 0, 0);
+  const c = { id, name: 'Untitled chart', act: 1, notes: '', nodes: [goal], edges: [], auto: true, createdAt: Date.now(), updatedAt: Date.now(), rev: '' };
+  S.charts.set(id, c);
+  S.drawer = false;
+  openChart(id);
+  S.sel = { type: 'node', id: goal.id };
+  scheduleSave(0); render(); focusTitle();
+}
+function duplicateChart(src) {
+  if (S.readOnly) return;
+  let id;
+  try { id = S.db ? S.db.collection('charts').doc().id : null; } catch (e) { id = null; }
+  if (!id) { id = 'local-' + Math.random().toString(36).slice(2, 10); S.localOnly.add(id); }
+  const d = normalize(id, JSON.parse(JSON.stringify(serialize(src))));
+  d.name = src.name + ' (copy)'; d.createdAt = Date.now(); d.rev = '';
+  S.charts.set(id, d);
+  openChart(id); scheduleSave(0); toast('Made a copy of the chart.');
+}
+async function deleteChart(id) {
+  const c = S.charts.get(id); if (!c) return;
+  clearTimeout(S.timers.get(id)); S.timers.delete(id); S.dirty.delete(id);
+  S.charts.delete(id); S.undo.delete(id); S.redo.delete(id); S.views.delete(id);
+  const next = [...S.charts.values()].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  S.currentId = null;
+  if (next) openChart(next.id); else render();
+  toast(`Deleted “${c.name}”.`);
+  if (S.db && !S.localOnly.has(id)) {
+    try { await S.db.collection('charts').doc(id).delete(); }
+    catch (e) { S.saveErr = 'The chart couldn’t be deleted from the saved copy. Reload to see it again.'; updateStatus(); }
+  }
+  S.localOnly.delete(id);
+}
+
+/* ------------------------------------------------------------------ saving */
+function scheduleSave(delay, noLayout) {
+  const c = cur(); if (!c) return;
+  if (!noLayout) requestLayout();
+  if (S.readOnly) return;
+  const id = c.id;
+  S.dirty.add(id);
+  clearTimeout(S.timers.get(id));
+  S.timers.set(id, setTimeout(() => flush(id), delay == null ? 700 : delay));
+  updateStatus();
+}
+function flushNow(id) { if (S.dirty.has(id)) { clearTimeout(S.timers.get(id)); flush(id); } }
+async function flush(id, retried) {
+  S.timers.delete(id);
+  const c = S.charts.get(id);
+  if (!c) { S.dirty.delete(id); updateStatus(); return; }
+  if (!S.db || S.localOnly.has(id)) { S.dirty.delete(id); updateStatus(); return; }
+  if (S.inflight.has(id)) { S.timers.set(id, setTimeout(() => flush(id), 250)); return; }
+  S.dirty.delete(id); S.inflight.add(id); updateStatus();
+  c.updatedAt = Date.now(); c.rev = clientId + ':' + (++revCounter);
+  const body = serialize(c);
+  let err = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { await S.db.collection('charts').doc(id).set(body); err = null; break; }
+    catch (e) {
+      err = e || { code: 'unavailable' };
+      if (err.code !== 'unavailable' || attempt) break;
+      await new Promise((r) => setTimeout(r, 600 + Math.random() * 900));
+    }
+  }
+  S.inflight.delete(id);
+  if (!err) S.saveErr = '';
+  else {
+    const code = err.code || 'unavailable';
+    if (code === 'invalid_argument') { S.readOnly = true; S.saveErr = 'You can look at these charts but not change them.'; render(); }
+    else if (code === 'quota_exceeded') S.saveErr = 'There’s no room left to save. Delete a chart you don’t need, then edit again.';
+    else if (code === 'revoked' || code === 'not_granted') S.saveErr = 'Saving stopped: access to the saved charts ended. Reload the page to try again.';
+    else S.saveErr = 'Couldn’t save the last change. It’s still on this page and will save with your next edit.';
+    if (code !== 'invalid_argument') S.dirty.add(id);
+  }
+  updateStatus();
+}
+window.addEventListener('pagehide', () => { for (const id of [...S.dirty]) flushNow(id); });
+
+/* ------------------------------------------------------------------ loading */
+function onCharts(snap) {
+  const fromCache = !!(snap.metadata && snap.metadata.fromCache);
+  if (fromCache && snap.empty && !S.loaded) return;   // wait for the store before saying there are no charts
+  const firstLoad = !S.loaded;
+  if (!fromCache) { clearTimeout(S.loadTimer); S.dbState = 'ready'; }
+  S.loaded = true;
+  let changed = false, currentChanged = false;
+  const seen = new Set();
+  for (const d of snap.docs) {
+    if (!d.exists) continue;
+    seen.add(d.id);
+    const data = d.data();
+    const local = S.charts.get(d.id);
+    const busy = S.dirty.has(d.id) || S.inflight.has(d.id) || (d.id === S.currentId && (S.gesture || S.animating));
+    if (local && busy) continue;
+    if (local && local.rev && data.rev === local.rev) continue;
+    const next = normalize(d.id, data);
+    if (local && JSON.stringify(serialize(local)) === JSON.stringify(serialize(next))) continue;
+    S.charts.set(d.id, next); changed = true;
+    if (local && d.id === S.currentId) { S.undo.delete(d.id); S.redo.delete(d.id); currentChanged = true; }
+  }
+  if (!fromCache) {
+    for (const id of [...S.charts.keys()]) {
+      if (!seen.has(id) && !S.dirty.has(id) && !S.inflight.has(id) && !S.localOnly.has(id) && S.charts.get(id).updatedAt) {
+        S.charts.delete(id); changed = true; if (id === S.currentId) S.currentId = null;
+      }
+    }
+  }
+  if (!S.currentId || !S.charts.has(S.currentId)) {
+    const last = lsGet(LS_LAST);
+    const pick = (last && S.charts.has(last)) ? last : ([...S.charts.values()].sort((a, b) => b.updatedAt - a.updatedAt)[0] || {}).id;
+    S.currentId = null;
+    if (pick) { openChart(pick); return; }
+    render(); return;
+  }
+  if (!changed && !firstLoad) return;
+  if (currentChanged) {
+    const c = cur();
+    if (S.sel && S.sel.type === 'node' && !c.nodes.some((n) => n.id === S.sel.id)) S.sel = null;
+    if (S.sel && S.sel.type === 'edge' && !c.edges.some((e) => e.from === S.sel.from && e.to === S.sel.to)) S.sel = null;
+    if (S.play) S.play = null;
+  }
+  const active = document.activeElement;
+  const typing = active && $('#insp').contains(active) && active.matches('input, textarea, select');
+  renderSide(); renderCanvas(); if (!typing) renderInspector(); updateChrome();
+  if (currentChanged) requestLayout();
+}
+async function init() {
+  renderLegend();
+  applyView();
+  render();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => requestLayout());
+  S.loadTimer = setTimeout(() => { if (!S.loaded) { S.dbState = 'slow'; render(); } }, 10000);
+  let db = null;
+  try { db = window.claude && typeof window.claude.use === 'function' ? await window.claude.use('db') : null; } catch (e) { db = null; }
+  if (!db) { clearTimeout(S.loadTimer); S.dbState = 'off'; S.loaded = true; render(); return; }
+  S.db = db;
+  db.collection('meta').limit(10).onSnapshot((snap) => {
+    const d = (snap.docs || []).find((x) => x.exists && x.id === 'world');
+    if (!d || !applyWorld(d.data())) return;
+    fillLists(); renderCanvas();
+    const a = document.activeElement;
+    if (!(a && $('#insp').contains(a))) renderInspector();
+  }, () => { /* keep the built-in lists */ });
+  db.collection('charts').limit(500).onSnapshot(onCharts, (err) => {
+    clearTimeout(S.loadTimer); S.loaded = true;
+    S.dbState = S.charts.size ? 'ready' : 'error';
+    S.saveErr = err && err.code === 'revoked' ? 'Access to the saved charts ended. Reload the page to try again.' : 'Lost the link to the saved charts. Reload the page to see the latest.';
+    render();
+  });
+  try {
+    const user = await window.claude.use('user');
+    if (user && typeof user.can === 'function') { const ok = await user.can('data.write'); if (ok === false) { S.readOnly = true; render(); } }
+  } catch (e) { /* not told: keep editing on */ }
+}
+window.addEventListener('resize', () => { if (cur() && !cur().nodes.length) fitView(); });
+init();
+})();
+</script>
+
+</body></html>
