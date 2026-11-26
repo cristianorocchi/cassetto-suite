@@ -201,6 +201,17 @@ class PuzzlesModule(Module):
         out.sort(key=lambda c: (c["act"] if isinstance(c["act"], int) else 99, c["name"].lower()))
         return {"synced": int(time.time() * 1000), "source": "cassetto", "live": True, "charts": out}
 
+    def create_chart(self, name: str = "") -> str:
+        """A new chart with just its end goal, as the page's New chart makes it. Returns its id."""
+        cid = new_id()
+        now = int(time.time() * 1000)
+        self.write(cid, {"name": (str(name).strip() or "Untitled chart")[:200], "act": 1, "notes": "", "auto": True,
+                         "nodes": [{"id": "n" + secrets.token_hex(4), "kind": "goal", "title": "The end goal", "scene": "", "who": "",
+                                    "when": "", "gid": "", "status": "idea", "notes": "", "x": 0, "y": 0}],
+                         "edges": [], "createdAt": now, "updatedAt": now, "rev": "create:" + secrets.token_hex(3)})
+        self.ctx.core.settle(self.id, chart=cid, created=True)
+        return cid
+
     def rename_scene(self, old: str, new: str) -> dict:
         if not old or not new or old == new:
             return {"steps": 0, "charts": 0}
@@ -223,9 +234,14 @@ class PuzzlesModule(Module):
 
     def references(self) -> dict:
         cat = self.ctx.optional("world.catalog")
-        out = {"world": bool(cat), "missing_scenes": [], "missing_people": []}
+        out = {"world": bool(cat), "missing_scenes": [], "missing_people": [], "missing_charts": []}
         if not cat:
             return out
+        have = {cid for cid, _ in self.docs()}
+        for s in cat.get("hierarchy", []):     # charts put with a scene, then deleted
+            for cid in s.get("charts", []):
+                if cid not in have:
+                    out["missing_charts"].append({"scene": s["id"], "scene_name": s["name"], "chart": cid})
         scenes = {s for s, _ in cat["scenes"]}
         people = {p for p, _ in cat["people"]} | {"player"}
         for cid, d in self.docs():
@@ -243,10 +259,13 @@ class PuzzlesModule(Module):
         return [
             Interface("puzzles.charts", self.charts,
                       "() -> {charts: [{id, name, act, nodes: [{id, kind, title, scene, who, when, gid, status}], edges: [{from, to}]}]}"),
+            Interface("puzzles.create_chart", self.create_chart,
+                      "(name) -> id: a new chart with just its end goal."),
             Interface("puzzles.rename_scene", self.rename_scene,
                       "(old, new) -> {steps, charts}: the steps placed in scene `old` move to `new`."),
             Interface("puzzles.references", self.references,
-                      "() -> {missing_scenes: [...], missing_people: [...]}: steps whose scene or person the world lacks."),
+                      "() -> {missing_scenes, missing_people, missing_charts}: steps whose scene or person the world lacks, "
+                      "and charts put with a scene that the project no longer has."),
         ]
 
     # --- HTTP ---
@@ -315,4 +334,5 @@ class PuzzlesModule(Module):
         docs = self.docs()
         refs = self.references()
         return {"charts": len(docs), "steps": sum(len(d.get("nodes", [])) for _, d in docs),
-                "missing": len(refs["missing_scenes"]) + len(refs["missing_people"]), "problems": self.problems()}
+                "missing": len(refs["missing_scenes"]) + len(refs["missing_people"]) + len(refs["missing_charts"]),
+                "problems": self.problems()}

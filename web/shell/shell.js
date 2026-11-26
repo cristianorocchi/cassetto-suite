@@ -38,6 +38,7 @@
     statuses: new Map(),      // module id -> {state, text}
     pendingNav: new Map(),    // module id -> target waiting for the page to register
     down: false, godot: null, refsTimer: 0,
+    tree: null, treeSel: null, treeTimer: 0, collapsed: new Set(), treeOn: lsGet('cassetto:tree') !== 'off',
   };
   const modules = () => (S.state ? S.state.modules : []);
   const project = () => (S.state ? S.state.project : null);
@@ -75,6 +76,7 @@
         register(h) { link.hooks = h || {}; deliverNav(id); },
         navigate: (mod, target) => show(mod, target),
         status(state, text) { S.statuses.set(id, { state, text: text || '' }); renderStatus(); },
+        selected(t) { if (id === S.active || !t) treeSelect(t, true); },
         error: (msg) => toast(msg, 'bad'),
       };
     },
@@ -115,6 +117,7 @@
   }
   function shortcut(e) {
     if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return false;
+    if (e.key === 'b' || e.key === 'B') { toggleTree(); return true; }
     const n = parseInt(e.key, 10);
     if (!(n >= 1 && n <= 9)) return false;
     const m = modules()[n - 1]; if (!m || !project()) return false;
@@ -201,7 +204,9 @@
         if (location.hash) history.replaceState(null, '', location.pathname);
         show(modules().some((m) => m.id === first) ? first : modules()[0].id, target);
         loadGodot();
-      }
+        try { S.collapsed = new Set(JSON.parse(lsGet(`cassetto:tree:${project().id}`) || '[]')); } catch (e) { S.collapsed = new Set(); }
+        S.treeSel = null; loadTree();
+      } else { S.tree = null; renderTree(); }
     }
     renderHead(); renderWelcome();
   }
@@ -244,14 +249,141 @@
   }
   function handle(ev) {
     if (ev.type === 'project.opened' || ev.type === 'project.closed') { loadState(); }
-    else if (ev.type === 'project.renamed') { if (S.state && S.state.project) S.state.project.name = ev.data.name; renderHead(); }
-    else if (ev.type === 'world.changed') { refreshSoon(); loadGodot(); }
-    else if (ev.type.endsWith('.changed')) refreshSoon();
+    else if (ev.type === 'project.renamed') { if (S.state && S.state.project) S.state.project.name = ev.data.name; renderHead(); loadTreeSoon(); }
+    else if (ev.type === 'world.changed') { refreshSoon(); loadGodot(); loadTreeSoon(); }
+    else if (ev.type.endsWith('.changed')) { refreshSoon(); loadTreeSoon(); }
     for (const id of S.links.keys()) emitTo(id, ev.type, ev);
   }
   setInterval(() => { api('POST', '/api/core/heartbeat').catch(() => {}); }, 10000);
   api('POST', '/api/core/heartbeat').catch(() => {});
   window.addEventListener('pagehide', () => { flushAll(); });
+
+  /* ---------------------------------------------------------------- the project tree */
+  // Acts › scenes › scenes inside them › the charts put with each scene. It shows what the modules hold:
+  // the world's structure from Plastico (world.catalog) and the chart names from Puzzle Charts
+  // (puzzles.charts). A chart put with several scenes appears under each, every entry pointing at the one chart.
+  const TW = '<svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const IC = {
+    act: 'M2.5 2.5h11v11h-11z M2.5 6h11',
+    scene: 'M2 5.5 8 2.5l6 3v5l-6 3-6-3z M2 5.5l6 3 6-3M8 8.5v5',
+    sceneIn: 'M3 4h10v8H3z M6 7h4v3H6z',
+    chart: ICONS.puzzles,
+    group: 'M2 4.5h12M2 8h12M2 11.5h8',
+  };
+  async function loadTree() {
+    if (!project()) { S.tree = null; renderTree(); return; }
+    try {
+      const [cat, ch] = await Promise.all([
+        api('POST', '/api/core/call/world.catalog', { args: [], caller: 'shell' }).then((r) => r.result),
+        api('POST', '/api/core/call/puzzles.charts', { args: [], caller: 'shell' }).then((r) => r.result).catch(() => ({ charts: [] })),
+      ]);
+      S.tree = { cat, charts: new Map((ch.charts || []).map((c) => [c.id, c])) };
+    } catch (e) { S.tree = { error: e.message }; }
+    renderTree();
+  }
+  function loadTreeSoon() { clearTimeout(S.treeTimer); S.treeTimer = setTimeout(loadTree, 250); }
+  function saveCollapsed() { if (project()) lsSet(`cassetto:tree:${project().id}`, JSON.stringify([...S.collapsed])); }
+  function toggleTree() { S.treeOn = !S.treeOn; lsSet('cassetto:tree', S.treeOn ? 'on' : 'off'); renderTree(); }
+  $('#btn-tree').addEventListener('click', toggleTree);
+  $('#tree-collapse').addEventListener('click', () => {
+    if (!S.tree || !S.tree.cat) return;
+    for (const a of S.tree.cat.acts) S.collapsed.add(`act:${a[0]}`);
+    for (const sc of S.tree.cat.hierarchy || []) S.collapsed.add(`scene:${sc.id}`);
+    S.collapsed.add('group:loose'); saveCollapsed(); renderTree();
+  });
+  function treeSelect(t, fromModule) {
+    S.treeSel = t && (t.scene || t.chart) ? { scene: t.scene || null, chart: t.chart || null } : null;
+    if (fromModule && S.treeSel && S.treeSel.scene && S.tree && S.tree.cat) {   // open the way down to it
+      const all = new Map((S.tree.cat.hierarchy || []).map((q) => [q.id, q]));
+      let cur = all.get(S.treeSel.scene), guard = 0, opened = false;
+      if (cur && S.collapsed.delete(`act:${cur.act}`)) opened = true;
+      while (cur && cur.parent && all.has(cur.parent) && guard++ < 100) { cur = all.get(cur.parent); if (S.collapsed.delete(`scene:${cur.id}`)) opened = true; if (S.collapsed.delete(`act:${cur.act}`)) opened = true; }
+      if (opened) saveCollapsed();
+    }
+    renderTree();
+    const on = document.querySelector('#tree-body .tn.sel'); if (on && fromModule) on.scrollIntoView({ block: 'nearest' });
+  }
+  function treeNode(key, cls, icon, name, count, depth, kids, open, onPick, title) {
+    const li = el('li'); li.setAttribute('role', 'none');
+    const row = el('div', 'tn ' + cls); row.setAttribute('role', 'treeitem'); row.tabIndex = 0; row.dataset.key = key;
+    row.style.paddingLeft = `${4 + depth * 14}px`;
+    const tw = el('span', 'tw'); if (kids) { tw.innerHTML = TW; row.setAttribute('aria-expanded', String(open)); }
+    const toggle = (e) => { e.stopPropagation(); if (S.collapsed.has(key)) S.collapsed.delete(key); else S.collapsed.add(key); saveCollapsed(); renderTree(); };
+    if (kids) tw.addEventListener('click', toggle);
+    row.append(tw, icon ? iconEl(icon) : el('span', 'ic'), el('span', 'nm', name));
+    if (count != null) row.append(el('span', 'ct', String(count)));
+    if (title) row.title = title;
+    row.addEventListener('click', () => onPick && onPick());
+    row.addEventListener('dblclick', (e) => { if (kids) toggle(e); });
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (onPick) onPick(); }
+      else if (e.key === 'ArrowRight' && kids && !open) toggle(e);
+      else if (e.key === 'ArrowLeft' && kids && open) toggle(e);
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const rows = [...document.querySelectorAll('#tree-body .tn')]; const i = rows.indexOf(row);
+        const next = rows[i + (e.key === 'ArrowDown' ? 1 : -1)]; if (next) next.focus();
+      }
+    });
+    li.append(row);
+    if (kids && open) { const ul = el('ul'); ul.setAttribute('role', 'group'); kids.forEach((k) => ul.append(k)); li.append(ul); }
+    return li;
+  }
+  function iconEl(d) { const s = icon(d); s.setAttribute('class', 'ic'); return s; }
+  function renderTree() {
+    const box = $('#tree'), body = $('#tree-body');
+    $('#btn-tree').setAttribute('aria-pressed', String(S.treeOn));
+    $('#btn-tree').hidden = !project();
+    box.hidden = !project() || !S.treeOn;
+    if (box.hidden) return;
+    const keep = document.activeElement && body.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+    body.textContent = '';
+    if (!S.tree) { body.append(el('div', 'tree-empty', 'Loading…')); return; }
+    if (S.tree.error) { body.append(el('div', 'tree-empty', `Couldn’t read the project: ${S.tree.error}`)); return; }
+    const { cat, charts } = S.tree;
+    const scenes = cat.hierarchy || [];
+    const byParent = new Map();
+    const ids = new Set(scenes.map((q) => q.id));
+    for (const q of scenes) { const p = q.parent && ids.has(q.parent) ? q.parent : ''; if (!byParent.has(p)) byParent.set(p, []); byParent.get(p).push(q); }
+    for (const l of byParent.values()) l.sort((a, b) => a.name.localeCompare(b.name));
+    const sel = S.treeSel || {};
+    const used = new Set();
+    const chartLeaf = (sceneId, cid, depth) => {
+      const c = charts.get(cid); used.add(cid);
+      const n = treeNode(`chart:${sceneId}:${cid}`, 'chart' + (c ? '' : ' missing') + (sel.chart === cid ? ' sel' : ''), IC.chart,
+        c ? c.name : 'Missing chart', c ? c.nodes.length : null, depth, null, false,
+        () => { if (!c) { toast('That chart isn’t in the project any more: take it off the scene in Plastico.', 'bad'); return; } treeSelect({ chart: cid }); show('puzzles', { chart: cid }); },
+        c ? `${c.name} · act ${c.act} · ${c.nodes.length} steps` : `Chart ${cid} was deleted`);
+      return n;
+    };
+    const sceneNode = (q, depth) => {
+      const key = `scene:${q.id}`;
+      const kidsScenes = byParent.get(q.id) || [];
+      const kids = [...kidsScenes.map((k) => sceneNode(k, depth + 1)), ...q.charts.map((cid) => chartLeaf(q.id, cid, depth + 1))];
+      return treeNode(key, 'scene' + (q.delete ? ' gone' : '') + (sel.scene === q.id && !sel.chart ? ' sel' : ''), q.parent ? IC.sceneIn : IC.scene, q.name || q.id,
+        null, depth, kids.length ? kids : null, !S.collapsed.has(key),
+        () => { treeSelect({ scene: q.id }); show('plastico', { scene: q.id }); },
+        `${q.name} (${q.id})${q.delete ? ' · marked to delete' : ''}`);
+    };
+    const root = el('ul'); root.setAttribute('role', 'group');
+    for (const [aid, aname] of cat.acts) {
+      const key = `act:${aid}`;
+      const top = (byParent.get('') || []).filter((q) => q.act === aid);
+      const count = scenes.filter((q) => q.act === aid).length;
+      root.append(treeNode(key, 'act', IC.act, `Act ${aid}${aname ? ' · ' + aname : ''}`, count, 0, top.length ? top.map((q) => sceneNode(q, 1)) : null,
+        !S.collapsed.has(key), () => { treeSelect(null); show('plastico', { act: aid }); }, 'Show this act in Plastico'));
+    }
+    const loose = [...charts.values()].filter((c) => !used.has(c.id));
+    if (loose.length) {
+      root.append(treeNode('group:loose', 'group', IC.group, 'Charts not with a scene', loose.length, 0,
+        loose.map((c) => treeNode(`chart::${c.id}`, 'chart' + (sel.chart === c.id ? ' sel' : ''), IC.chart, c.name, c.nodes.length, 1, null, false,
+          () => { treeSelect({ chart: c.id }); show('puzzles', { chart: c.id }); }, `${c.name} · act ${c.act}`)),
+        !S.collapsed.has('group:loose'), null));
+    }
+    if (!scenes.length && !charts.size) body.append(el('div', 'tree-empty', 'Nothing here yet: add a scene in Plastico, or a chart in Puzzle Charts.'));
+    body.append(root);
+    if (keep) { const f = body.querySelector(`.tn[data-key="${CSS.escape(keep)}"]`); if (f) f.focus(); }
+  }
 
   /* ---------------------------------------------------------------- menus */
   function closeMenus() { document.querySelectorAll('.menu').forEach((m) => { m.hidden = true; }); document.querySelectorAll('[aria-haspopup]').forEach((b) => b.setAttribute('aria-expanded', 'false')); }

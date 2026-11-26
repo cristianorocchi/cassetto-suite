@@ -76,8 +76,8 @@ try {
   view = new View3D($('#stage'), $('#labels'), {
     onSelect: (sel) => pick(sel),
     onEmptyClick: () => { if (S.route || S.play) return; select(null); },
-    onAddAt: (x, z) => { if (S.route || S.play) return; addScene(lastKind(), x, z, 0); },
-    onMoveScene: (id, x, z, floor) => edit((w) => { const s = w.scenes.find((q) => q.id === id); if (s) { s.x = round(x); s.z = round(z); if (floor != null) s.floor = floor; } }, { insp: floor != null && floor !== (S.world.scenes.find((q) => q.id === id) || {}).floor }),
+    onAddAt: (x, z) => { if (S.route || S.play) return; openAddScene({ x, z }); },
+    onMoveScene: (id, x, z, floor, o) => moveScene(id, x, z, floor, o),
     onFloorHint: (f) => toast(f === 0 ? 'Street level' : f > 0 ? `Floor ${f}` : `${-f} below the street`),
     onConnect: (a, b) => connect(a, b),
     onConnectNew: (a, x, z) => connectNew(a, x, z),
@@ -133,6 +133,8 @@ function renderLabel(s, elx) {
   const steps = S.M.steps.get(s.id) || [];
   if (S.ui.steps && steps.length) { const sp = el('span'); sp.append(svgIcon(ICON.step), document.createTextNode(`${steps.length} step${steps.length > 1 ? 's' : ''}`)); meta.append(sp); }
   if (s.floor) meta.append(el('span', '', s.floor > 0 ? `floor ${s.floor}` : `${-s.floor} below`));
+  if (s.parent) { const P = S.M.scenes.get(s.parent); if (P) meta.append(el('span', 'in', `in ${P.name || P.id}`)); }
+  if ((s.charts || []).length) meta.append(el('span', '', `${s.charts.length} chart${s.charts.length > 1 ? 's' : ''}`));
   if (meta.childNodes.length) card.append(meta);
   if (S.ui.people && S.M.phases.length) {
     const ppl = model.peopleAt(S.M, s, S.ui.phase);
@@ -253,31 +255,108 @@ function newSceneId(name, w = S.world) {
   while (ids.has(id)) id = `${base}_${k++}`;
   return id;
 }
-function lastKind() { return lsGet('plastico:kind') || 'inside'; }
-
-function addScene(kind, x, z, floor, opts = {}) {
-  lsSet('plastico:kind', kind);
-  const near = S.sel && S.sel.type === 'scene' ? S.M.scenes.get(S.sel.id) : null;
-  const name = opts.name || 'New place';
+// A new scene goes in an act, or inside another scene (its parent): then it sits just below its parent on
+// the map, in the parent's act. Its block starts at the size of an inside scene; Kind and Size are in its panel.
+function addScene(opts = {}) {
+  const name = (opts.name || '').trim() || 'New place';
+  const parent = opts.parent ? S.world.scenes.find((q) => q.id === opts.parent) : null;
+  const kind = opts.kind || 'inside';
+  const { w: cw, d: cd } = model.sizeOf({ kind });
   let id = '';
   edit((w) => {
     id = newSceneId(name, w);
-    const act = S.ui.act !== 'all' ? S.ui.act : near ? near.act : w.acts[0].id;
-    w.scenes.push({ id, name, kind, act, area: near ? near.area : '', x: round(x), z: round(z), floor: floor ?? (near ? near.floor : 0),
-      status: 'idea', open: [], people: {}, notes: '', delete: false, autoId: true });
+    const act = parent ? (model.ancestorsOf(w, parent.id).pop() || parent).act : opts.act && w.acts.some((a) => a.id === opts.act) ? opts.act : w.acts[0].id;
+    let x, z, floor;
+    if (parent) { ({ x, z } = model.childSpot(w, parent, cw, cd)); floor = parent.floor || 0; }
+    else {
+      floor = opts.floor ?? 0;
+      const t = opts.x != null ? { x: opts.x, z: opts.z } : view.controls.target;
+      ({ x, z } = model.freeSpot(w.scenes, t.x, t.z, cw, cd, floor));
+    }
+    w.scenes.push({ id, name, kind, act, area: parent ? parent.area : '', x, z, w: cw, d: cd, floor,
+      status: 'idea', open: [], people: {}, notes: '', delete: false, autoId: true, parent: parent ? parent.id : '', charts: [] });
     const A = w.acts.find((a) => a.id === act);
     if (A && !A.start && !w.godot && !w.scenes.some((q) => q.id !== id && q.act === act)) A.start = id;
     if (opts.from) addLinkPair(w, opts.from, id);
   });
   select({ type: 'scene', id }, { focusName: true });
+  if (parent) view.focus(parent.id);
   return id;
 }
-function addSceneHere(kind) {
-  const near = S.sel && S.sel.type === 'scene' ? S.M.scenes.get(S.sel.id) : null;
-  let x, z, floor = 0;
-  if (near) { x = near.x + (KINDS[near.kind].w + KINDS[kind].w) / 2 + 2; z = near.z; floor = near.floor; }
-  else { const t = view.controls.target; x = t.x; z = t.z; }
-  addScene(kind, x, z, floor);
+function sceneLabel(q) { return q.name || q.id; }
+function containerText(act, parentId) {
+  const w = S.world;
+  if (parentId) {
+    const P = w.scenes.find((q) => q.id === parentId); if (!P) return '';
+    const chain = [P, ...model.ancestorsOf(w, P.id)].reverse();
+    const A = w.acts.find((a) => a.id === chain[0].act);
+    return [`Act ${A ? A.id : '?'}${A && A.name ? ' · ' + A.name : ''}`, ...chain.map(sceneLabel)].join(' › ');
+  }
+  const A = w.acts.find((a) => a.id === act);
+  return A ? `Act ${A.id}${A.name ? ' · ' + A.name : ''}` : '';
+}
+// The Add scene dialog: a name, and where the scene goes, shown in full before it is made.
+function openAddScene(at = {}) {
+  if (!S.world || S.route || S.play) return;
+  const w = S.world;
+  const selScene = S.sel && S.sel.type === 'scene' ? w.scenes.find((q) => q.id === S.sel.id) : null;
+  openModal((box) => {
+    modalHead(box, 'Add a scene', 'Choose where it goes: in an act, or inside a scene that is already there.');
+    const body = el('div', 'modal-body'); box.append(body);
+    const name = el('input'); name.id = 'f-new-name'; name.placeholder = 'New place'; body.append(field('Name', name));
+    const where = el('div', 'choices');
+    const choice = (value, label, control) => {
+      const l = el('label', 'choice'); const r = el('input'); r.type = 'radio'; r.name = 'where'; r.value = value;
+      const d = el('div'); d.append(el('b', '', label), control); l.append(r, d); where.append(l); return r;
+    };
+    const actSel = el('select'); actSel.id = 'f-new-act';
+    for (const a of w.acts) { const o = el('option', '', `Act ${a.id}${a.name ? ' · ' + a.name : ''}`); o.value = a.id; actSel.append(o); }
+    actSel.value = S.ui.act !== 'all' ? S.ui.act : selScene ? selScene.act : w.acts[0].id;
+    const parSel = el('select'); parSel.id = 'f-new-parent';
+    const live = w.scenes.filter((q) => !q.delete).sort((a, b) => sceneLabel(a).localeCompare(sceneLabel(b)));
+    for (const q of live) { const o = el('option', '', `${sceneLabel(q)}  (${containerText(q.act, q.parent) || 'act ' + q.act})`); o.value = q.id; parSel.append(o); }
+    if (selScene) parSel.value = selScene.id;
+    const rAct = choice('act', 'In an act', actSel);
+    const rPar = choice('parent', 'Inside a scene', parSel);
+    if (!live.length) { rPar.disabled = true; parSel.disabled = true; parSel.append(el('option', '', 'No scenes yet')); }
+    rAct.checked = true;
+    body.append(field('Where it goes', where));
+    const preview = el('div', 'alert info'); preview.id = 'f-new-where'; body.append(preview);
+    const draw = () => {
+      const inside = rPar.checked;
+      preview.textContent = '';
+      preview.append(el('b', '', 'It goes in: '), document.createTextNode(`${inside ? containerText(null, parSel.value) : containerText(actSel.value, '')} › ${name.value.trim() || 'New place'}`));
+      if (inside) preview.append(el('div', 'note', 'On the map it sits just below that scene, and moves with it.'));
+    };
+    for (const e of [actSel, parSel]) e.addEventListener('change', () => { (e === actSel ? rAct : rPar).checked = true; draw(); });
+    for (const r of [rAct, rPar]) r.addEventListener('change', draw);
+    name.addEventListener('input', draw);
+    draw();
+    const foot = el('div', 'modal-foot'); const r = el('div', 'r');
+    const go = btn('Add scene', 'btn primary', () => {
+      closeModal();
+      addScene(rPar.checked ? { name: name.value, parent: parSel.value } : { name: name.value, act: actSel.value, x: at.x, z: at.z, floor: at.floor });
+    }); go.id = 'f-new-go';
+    name.addEventListener('keydown', (e) => { if (e.key === 'Enter') go.click(); });
+    r.append(btn('Cancel', 'btn', closeModal), go); foot.append(el('div', 'l'), r); box.append(foot);
+    setTimeout(() => name.focus(), 0);
+  }, true);
+}
+// A scene moved by hand: what is inside it moves along, and where the group would land on another block
+// it slides to the nearest free place on the grid (unless placed freely with Shift).
+function moveScene(id, x, z, floor, o = {}) {
+  const old = S.world.scenes.find((q) => q.id === id); if (!old) return;
+  const group = [old, ...[...model.descendantsOf(S.world, id)].map((k) => S.world.scenes.find((q) => q.id === k))].filter(Boolean);
+  const df = (floor ?? old.floor ?? 0) - (old.floor || 0);
+  let dx = x - old.x, dz = z - old.z;
+  if (!o.free) {
+    const f = model.freeShift(S.world.scenes, group, dx, dz, df);
+    if (f.dx !== dx || f.dz !== dz) toast('It would have overlapped another scene: moved to the nearest free place.');
+    dx = f.dx; dz = f.dz;
+  }
+  edit((w) => {
+    for (const g of group) { const s = w.scenes.find((q) => q.id === g.id); s.x = round(s.x + dx); s.z = round(s.z + dz); s.floor = (s.floor || 0) + df; }
+  }, { insp: df !== 0 });
 }
 function addLinkPair(w, a, b) {
   for (const [f, t] of [[a, b], [b, a]]) {
@@ -294,8 +373,10 @@ function connect(a, b) {
   select({ type: 'pair', key: model.pairKey(a, b) });
 }
 function connectNew(a, x, z) {
-  const src = S.M.scenes.get(a);
-  addScene(src.kind === 'outside' ? 'outside' : 'inside', x, z, src.floor, { from: a });
+  // dropped on empty ground: a new scene there, joined to this one, in the same container
+  const src = S.world.scenes.find((q) => q.id === a);
+  addScene({ act: src.act, x, z, floor: src.floor, from: a });
+  if (src.parent) edit((w) => { const n = w.scenes[w.scenes.length - 1]; n.parent = src.parent; });
 }
 function deleteScene(id) {
   const s = S.M.scenes.get(id);
@@ -306,6 +387,8 @@ function deleteScene(id) {
     toast(`${s.name} is marked to delete. Nothing changes in the game until you build it from the Godot button.`);
   } else {
     edit((w) => {
+      const gone = w.scenes.find((q) => q.id === id);
+      for (const c of w.scenes) if (c.parent === id) c.parent = gone.parent || '';   // the scenes inside it stay, one level up
       w.scenes = w.scenes.filter((q) => q.id !== id);
       w.links = w.links.filter((l) => l.from !== id && l.to !== id);
       for (const a of w.acts) if (a.start === id) a.start = '';
@@ -347,6 +430,7 @@ function pick(sel) {
 }
 function select(sel, opts = {}) {
   S.sel = sel;
+  if (CS && CS.selected) CS.selected(sel && sel.type === 'scene' ? { module: 'plastico', scene: sel.id } : null);
   refreshHighlight();
   renderInspector();
   if (opts.focusName) { const i = $('#f-name'); if (i) { i.focus(); i.select(); } }
@@ -544,7 +628,7 @@ function updateEmpty() {
   if (S.world && !S.world.scenes.length) {
     e.append(el('h2', '', 'An empty world'), el('p', '', 'Double-click the ground to add a scene, or use Add scene. Drag a scene’s dot onto another to join them.'),
       el('p', '', S.world.godot ? 'The linked Godot project has no scenes Plastico recognises yet.' : 'To bring in a game’s scenes, link its Godot project in World settings.'));
-    const r = el('div', 'row'); r.append(btn('Add a scene', 'btn primary', () => addSceneHere('inside')), btn('World settings', 'btn', openSettings)); e.append(r);
+    const r = el('div', 'row'); r.append(btn('Add a scene', 'btn primary', () => openAddScene()), btn('World settings', 'btn', openSettings)); e.append(r);
     e.hidden = false; return;
   }
   e.hidden = true;
@@ -691,11 +775,19 @@ function sceneInspector(box, s) {
     renameScene(s.id, v, false);
   });
   box.append(field('Id', idIn, s.inGame ? `In the game: ${s.g.res.replace('res://', '')}` : 'Its folder and name in Godot: scenes/<id>/'));
-  if (!s.inGame) box.append(field('Kind', seg(Object.entries(KINDS).map(([k, v]) => [k, v.label, v.long]), s.kind, (v) => edit((x) => { ws().kind = v; }))));
+  if (!s.inGame) box.append(field('Kind', seg(Object.entries(KINDS).map(([k, v]) => [k, v.label, v.long]), s.kind, (v) => edit((x) => {
+    const sc = ws(), was = model.sizeOf(sc), def = model.sizeOf({ kind: sc.kind });
+    sc.kind = v;
+    if (was.w === def.w && was.d === def.d) { const n = model.sizeOf({ kind: v }); resizeIn(x, sc, n.w, n.d); }   // still the old kind's size: take the new one's
+  }))));
+  box.append(sizeField(s, ws));
+  box.append(parentField(s));
   const r2 = el('div', 'row2');
   const actSel = el('select'); actSel.id = 'f-act';
   for (const a of w.acts) { const o = el('option', '', `Act ${a.id}${a.name ? ' · ' + a.name : ''}`); o.value = a.id; actSel.append(o); }
-  actSel.value = s.act; actSel.addEventListener('change', () => edit((x) => { ws().act = actSel.value; }));
+  actSel.value = s.act;
+  actSel.disabled = !!s.parent; if (s.parent) actSel.title = 'A scene inside another is in its act';
+  actSel.addEventListener('change', () => edit((x) => { ws().act = actSel.value; for (const k of model.descendantsOf(x, s.id)) x.scenes.find((q) => q.id === k).act = actSel.value; }));
   const areaSel = el('select'); areaSel.id = 'f-area';
   { const o = el('option', '', 'No area'); o.value = ''; areaSel.append(o); }
   for (const a of w.areas) { const o = el('option', '', a.name || 'Unnamed area'); o.value = a.id; areaSel.append(o); }
@@ -786,8 +878,9 @@ function sceneInspector(box, s) {
   }
   // puzzle steps
   const steps = M.steps.get(s.id) || [];
-  if (steps.length || (S.bundle.charts && S.bundle.charts.charts) || CS) {
-    const sec = section('Puzzle steps here', steps.length);
+  box.append(chartsSection(s, ws));
+  if (steps.length) {
+    const sec = section('Puzzle steps placed here', steps.length);
     if (!steps.length) sec.append(el('p', 'none', 'No puzzle chart puts a step here.'));
     const list = el('ul', 'steps');
     let last = null;
@@ -805,7 +898,6 @@ function sceneInspector(box, s) {
       list.append(li);
     }
     sec.append(list);
-    if (CS && s.state !== 'delete') sec.append(btn('Add a puzzle step here', 'btn small', () => CS.navigate('puzzles', { create: { scene: s.id } }), 'Opens Puzzle Charts with a new step placed in this scene'));
     box.append(sec);
   }
   const notes = el('textarea'); notes.id = 'f-notes'; notes.value = s.notes; notes.placeholder = 'What happens here, what it is for, what is still open…';
@@ -819,6 +911,129 @@ function sceneInspector(box, s) {
   box.append(foot);
 }
 
+// --- a scene's block: whole grid cells; the corner nearest the origin stays put, so the edges stay on the grid
+function resizeIn(w, sc, nw, nd) {
+  const old = model.sizeOf(sc);
+  const x0 = sc.x - old.w / 2, z0 = sc.z - old.d / 2;
+  sc.w = nw; sc.d = nd;
+  sc.x = model.snapAxis(x0 + nw / 2, nw); sc.z = model.snapAxis(z0 + nd / 2, nd);
+}
+function sizeField(s, ws) {
+  const { w: sw, d: sd } = model.sizeOf(s);
+  const wrap = el('div', 'row2');
+  const stepper = (label, value, set) => {
+    const st = el('div', 'stepper'); const inp = el('input'); inp.type = 'number'; inp.min = '1'; inp.max = String(model.MAX_CELLS); inp.step = '1'; inp.value = value;
+    inp.id = label === 'Width' ? 'f-w' : 'f-d';
+    st.append(btn('−', '', () => set(value - 1), `Narrower by one cell`), inp, btn('+', '', () => set(value + 1), `Wider by one cell`));
+    inp.addEventListener('change', () => set(parseInt(inp.value, 10) || value));
+    return field(label, st);
+  };
+  const apply = (nw, nd) => {
+    nw = Math.max(1, Math.min(model.MAX_CELLS, nw | 0)); nd = Math.max(1, Math.min(model.MAX_CELLS, nd | 0));
+    if (nw === sw && nd === sd) return;
+    const tmp = { ...s, w: nw, d: nd }; resizeIn(null, tmp, nw, nd);
+    const hit = model.overlapping(S.world.scenes, tmp.x, tmp.z, nw, nd, s.floor || 0, new Set([s.id]));
+    if (hit.length) { toast(`It would overlap ${hit.map(sceneLabel).join(', ')}: move one of them first.`); renderInspector(); return; }
+    edit((x) => resizeIn(x, ws(), nw, nd));
+  };
+  wrap.append(stepper('Width', sw, (v) => apply(v, sd)), stepper('Depth', sd, (v) => apply(sw, v)));
+  const f = el('div', 'f'); f.append(wrap, el('span', 'help', `${sw} × ${sd} cells on the grid. Its left and back edges stay where they are.`));
+  return f;
+}
+// --- the scene it sits in (its parent), and the scenes inside it
+function parentField(s) {
+  const w = S.world;
+  const box = el('div', 'stack');
+  const sel = el('select'); sel.id = 'f-parent';
+  { const o = el('option', '', 'Nothing: straight in its act'); o.value = ''; sel.append(o); }
+  const below = model.descendantsOf(w, s.id);
+  for (const q of w.scenes.filter((q) => q.id !== s.id && !below.has(q.id) && !q.delete).sort((a, b) => sceneLabel(a).localeCompare(sceneLabel(b)))) {
+    const o = el('option', '', sceneLabel(q)); o.value = q.id; sel.append(o);
+  }
+  sel.value = s.parent || '';
+  sel.addEventListener('change', () => setParent(s.id, sel.value));
+  box.append(field('Inside', sel, s.parent ? `In ${containerText(null, s.parent)}. It moves with it on the map.` : 'Put it inside another scene to group it there (a room in a building, a close-up in a room).'));
+  const kids = model.childrenOf(w, s.id);
+  if (kids.length) {
+    const ul = el('ul', 'links kids');
+    for (const k of kids) {
+      const li = el('li'); const go = el('button', 'go'); go.type = 'button';
+      go.append(el('span', 't', sceneLabel(k))); go.addEventListener('click', () => { select({ type: 'scene', id: k.id }); view.focus(k.id); });
+      li.append(go); ul.append(li);
+    }
+    box.append(field(`Scenes inside (${kids.length})`, ul));
+  }
+  return box;
+}
+function setParent(id, parent) {
+  const w = S.world;
+  if (parent && (parent === id || model.descendantsOf(w, id).has(parent))) return;
+  const sc = w.scenes.find((q) => q.id === id); if (!sc) return;
+  const P = parent ? w.scenes.find((q) => q.id === parent) : null;
+  const group = [sc, ...[...model.descendantsOf(w, id)].map((k) => w.scenes.find((q) => q.id === k))];
+  let dx = 0, dz = 0, df = 0;
+  if (P) {   // it goes to sit just below its new parent, with what is inside it
+    const { w: cw, d: cd } = model.sizeOf(sc);
+    const spot = model.childSpot({ ...w, scenes: w.scenes.filter((q) => !group.includes(q)) }, P, cw, cd);
+    df = (P.floor || 0) - (sc.floor || 0);
+    const f = model.freeShift(w.scenes, group, spot.x - sc.x, spot.z - sc.z, df);
+    dx = f.dx; dz = f.dz;
+  }
+  edit((x) => {
+    const act = P ? (model.ancestorsOf(x, P.id).pop() || P).act : null;
+    for (const g of group) {
+      const q = x.scenes.find((t) => t.id === g.id);
+      q.x = round(q.x + dx); q.z = round(q.z + dz); q.floor = (q.floor || 0) + df;
+      if (act) q.act = act;
+    }
+    x.scenes.find((q) => q.id === id).parent = parent || '';
+  });
+  if (P) view.focus(id);
+}
+// --- the puzzle charts that belong with a scene: chosen from the project's charts, kept on the scene
+function projectCharts() { return (S.bundle.charts && S.bundle.charts.charts) || []; }
+function chartsSection(s, ws) {
+  const ids = s.charts || [];
+  const sec = section('Puzzle charts', ids.length);
+  const ul = el('ul', 'links charts'); ul.id = 'scene-charts';
+  for (const cid of ids) {
+    const c = S.M.chartById.get(cid);
+    const li = el('li'); const go = el('button', 'go'); go.type = 'button';
+    if (c) {
+      go.append(stepGlyph('goal'), el('span', 't', c.name), el('span', 's', `act ${c.act} · ${c.nodes.length} step${c.nodes.length === 1 ? '' : 's'}`));
+      go.title = CS ? `Open “${c.name}” in Puzzle Charts` : c.name;
+      go.addEventListener('click', () => { if (CS) CS.navigate('puzzles', { chart: cid }); else toast('Open the Puzzle Charts page to see it.'); });
+    } else {
+      go.classList.add('missing'); go.append(el('span', 't', 'A chart that isn’t in the project any more'), el('span', 's', cid));
+      go.title = 'It was deleted from Puzzle Charts: remove it from this scene.';
+    }
+    const x = btn('×', 'x', () => edit((w) => { const sc = ws(); sc.charts = (sc.charts || []).filter((q) => q !== cid); }), 'Take it off this scene (the chart stays in the project)');
+    x.setAttribute('aria-label', 'Take the chart off this scene');
+    li.append(go, x); ul.append(li);
+  }
+  if (!ids.length) sec.append(el('p', 'none', 'No charts with this scene yet. Pick the ones whose puzzles happen here.'));
+  sec.append(ul);
+  const all = projectCharts();
+  const free = all.filter((c) => !ids.includes(c.id));
+  const pick = el('select'); pick.id = 'f-add-chart';
+  { const o = el('option', '', free.length ? 'Add a chart from the project…' : all.length ? 'Every chart is already here' : 'No charts in the project yet'); o.value = ''; pick.append(o); }
+  for (const c of free) { const o = el('option', '', `${c.name} · act ${c.act} · ${c.nodes.length} steps`); o.value = c.id; pick.append(o); }
+  pick.disabled = !free.length;
+  pick.addEventListener('change', () => { if (!pick.value) return; const cid = pick.value; edit((w) => { const sc = ws(); sc.charts = [...(sc.charts || []).filter((q) => q !== cid), cid]; }); });
+  sec.append(field('Add', pick));
+  if (CS) {
+    sec.append(btn('New chart for this scene', 'btn small', async () => {
+      try {
+        const cid = await CS.call('puzzles.create_chart', s.name || s.id);
+        edit((w) => { const sc = ws(); sc.charts = [...(sc.charts || []), cid]; });
+        await flushSave();
+        CS.navigate('puzzles', { chart: cid });
+      } catch (e) { toast(`Couldn’t make the chart: ${e.message}`); }
+    }, 'Makes an empty chart in Puzzle Charts, puts it with this scene, and opens it'));
+  }
+  return sec;
+}
+
 function renameScene(from, to, auto) {
   if (S.sel && S.sel.id === from) S.sel = { type: 'scene', id: to };
   edit((x) => {
@@ -826,6 +1041,7 @@ function renameScene(from, to, auto) {
     sc.id = to; if (!auto) sc.autoId = false;
     for (const l of x.links) { if (l.from === from) l.from = to; if (l.to === from) l.to = to; }
     for (const a of x.acts) if (a.start === from) a.start = to;
+    for (const c of x.scenes) if (c.parent === from) c.parent = to;
   });
   renderInspector(); refreshHighlight();
   if (CS) {
@@ -1305,16 +1521,7 @@ function menu(btnEl, menuEl, fill) {
 }
 document.addEventListener('click', () => { document.querySelectorAll('.menu').forEach((m) => { m.hidden = true; }); document.querySelectorAll('[aria-expanded]').forEach((b) => b.setAttribute('aria-expanded', 'false')); });
 
-menu($('#btn-add'), $('#menu-add'), (m) => {
-  m.textContent = '';
-  for (const [k, v] of Object.entries(KINDS)) {
-    const b = el('button', 'mi'); b.type = 'button';
-    b.append(document.createTextNode(v.long));
-    b.append(el('small', '', { outside: 'A street, a square, a courtyard: the player walks around in it', inside: 'A room seen from where you stand', closeup: 'A close look at one thing: a kiosk window, a desk' }[k]));
-    b.addEventListener('click', () => addSceneHere(k));
-    m.append(b);
-  }
-});
+$('#btn-add').addEventListener('click', () => openAddScene());
 menu($('#btn-more'), $('#menu-more'));
 $('#menu-more').addEventListener('click', (e) => {
   const a = e.target.closest('[data-act]'); if (!a) return;
@@ -1366,7 +1573,7 @@ document.addEventListener('keydown', (e) => {
   } else if (k === 'f') view.fit();
   else if (k === 't') toggleTop();
   else if (k === 's') setMode(S.ui.mode === 'skeleton' ? 'pictures' : 'skeleton');
-  else if (k === 'n') addSceneHere(lastKind());
+  else if (k === 'n') openAddScene();
   else if (k === 'r') (S.route ? stopRoute() : startRoute());
   else if (k === 'p') (S.play ? stopPlay() : startPlay());
   else if (/^[1-9]$/.test(k) && S.M.phases[+k - 1]) setPhase(S.M.phases[+k - 1]);
@@ -1380,8 +1587,13 @@ if (CS) {
   CS.register({
     flush: () => flushSave(),
     navigate: async (t) => {
-      if (!t || !t.scene) return;
-      if (!S.world) await new Promise((r) => setTimeout(r, 300));
+      if (!t) return;
+      for (let i = 0; i < 50 && !S.world; i++) await new Promise((r) => setTimeout(r, 100));
+      if (t.act && S.world && !t.scene) {
+        S.ui.act = S.world.acts.some((a) => a.id === t.act) ? t.act : 'all'; select(null); renderSide(); renderView(); view.fit(); return;
+      }
+      if (!t.scene) return;
+      if (S.ui.act !== 'all') { const sc = S.M && S.M.scenes.get(t.scene); if (sc && sc.act !== S.ui.act) { S.ui.act = 'all'; renderSide(); renderView(); } }
       if (S.M && S.M.scenes.has(t.scene)) { select({ type: 'scene', id: t.scene }); view.focus(t.scene); }
       else toast(`There’s no scene ${t.scene} in this world.`);
     },

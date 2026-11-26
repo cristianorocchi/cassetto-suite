@@ -11,6 +11,9 @@
 <body>
 <div class="suite" id="suite">
   <header class="bar">
+    <button class="tree-toggle" id="btn-tree" type="button" aria-pressed="true" aria-controls="tree" title="Show or hide the project tree (Ctrl+B)">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 2.5v11" stroke="currentColor" stroke-width="1.4"/></svg>
+    </button>
     <div class="brand" title="Cassetto">
       <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 11h19" stroke="currentColor" stroke-width="1.6"/><rect x="9" y="13.6" width="6" height="2.4" rx="1.2" fill="currentColor"/></svg>
       <span class="brand-name">Cassetto</span>
@@ -34,6 +37,11 @@
   </header>
 
   <main class="stage" id="stage">
+    <aside class="tree" id="tree" aria-label="Project tree" hidden>
+      <div class="tree-head"><span>Project</span><button class="tree-btn" id="tree-collapse" type="button" title="Collapse everything">Collapse all</button></div>
+      <div class="tree-body" id="tree-body" role="tree"></div>
+    </aside>
+    <div class="work" id="work">
     <section class="welcome" id="welcome" hidden>
       <div class="welcome-box">
         <h1>Cassetto</h1>
@@ -49,6 +57,7 @@
     </section>
     <div class="frames" id="frames"></div>
     <div class="loading" id="loading" hidden>Opening…</div>
+    </div>
   </main>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

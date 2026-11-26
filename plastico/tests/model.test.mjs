@@ -104,3 +104,65 @@ test('tidy keeps floors and separates overlapping scenes', () => {
   const d = Math.hypot(p.get('a').x - p.get('b').x, p.get('a').z - p.get('b').z);
   assert.ok(d > 4, `a and b should no longer overlap (${d})`);
 });
+
+// --- the grid: sizes in whole cells, edges on the lines, no overlaps ---
+const onGrid = (c, size) => Number.isInteger(c - size / 2) && Number.isInteger(c + size / 2);
+
+test('sizes are whole cells per kind, and the stored size wins', () => {
+  assert.deepEqual(model.sizeOf({ kind: 'inside' }), { w: 6, d: 4, h: 3 });
+  assert.deepEqual(model.sizeOf({ kind: 'outside' }), { w: 12, d: 7, h: 0.5 });
+  assert.deepEqual(model.sizeOf({ kind: 'closeup', w: 5, d: 3 }), { w: 5, d: 3, h: 1.8 });
+  assert.equal(model.sizeOf({ kind: 'inside', w: 0, d: 2.6 }).w, 6);   // not a size: the kind's
+  assert.equal(model.sizeOf({ kind: 'inside', w: 0, d: 2.6 }).d, 3);
+});
+
+test('snapping puts the edges, not the centre, on grid lines, for odd and even sizes', () => {
+  for (const size of [1, 2, 3, 4, 7, 12]) for (const c of [-7.3, -0.2, 0, 0.49, 3.6, 11.01]) {
+    const s = model.snapAxis(c, size);
+    assert.ok(onGrid(s, size), `size ${size} at ${c} -> ${s}`);
+    assert.ok(Math.abs(s - c) <= model.GRID / 2 + 1e-9);
+  }
+});
+
+test('blocks side by side touch without overlapping; one cell over, they overlap', () => {
+  const a = { id: 'a', kind: 'inside', x: 3, z: 2, floor: 0 };            // 6 x 4: x 0..6, z 0..4
+  assert.equal(model.overlapping([a], 9, 2, 6, 4, 0).length, 0);          // x 6..12: shares an edge
+  assert.equal(model.overlapping([a], 3, 6, 6, 4, 0).length, 0);          // below it
+  assert.equal(model.overlapping([a], 8, 2, 6, 4, 0).length, 1);          // x 5..11
+  assert.equal(model.overlapping([a], 8, 2, 6, 4, 1).length, 0);          // another floor
+  const p = model.freeSpot([a], 4, 2, 6, 4, 0);
+  assert.ok(onGrid(p.x, 6) && onGrid(p.z, 4));
+  assert.equal(model.overlapping([a], p.x, p.z, 6, 4, 0).length, 0);
+});
+
+test('a moved group slides to the nearest place where none of it overlaps', () => {
+  const others = [{ id: 'x', kind: 'inside', x: 13, z: 2, floor: 0 }];   // x 10..16
+  const group = [{ id: 'p', kind: 'inside', x: 3, z: 2, floor: 0 }, { id: 'c', kind: 'closeup', x: 1.5, z: 5, floor: 0 }];
+  const f = model.freeShift([...others, ...group], group, 6, 0, 0);       // p would be at 9: x 6..12, on top of x
+  assert.ok(!(f.dx === 6 && f.dz === 0));
+  for (const g of group) assert.equal(model.overlapping(others, g.x + f.dx, g.z + f.dz, model.sizeOf(g).w, model.sizeOf(g).d, 0).length, 0);
+});
+
+test('a child goes just below its parent, edges on the grid; descendants and ancestors', () => {
+  const w = { scenes: [{ id: 'room', kind: 'inside', x: 3, z: 2, floor: 1, parent: '' }] };
+  const p1 = model.childSpot(w, w.scenes[0], 3, 2);
+  assert.deepEqual(p1, { x: 1.5, z: 5 });                                  // left edges line up, top edge on the room's bottom edge
+  w.scenes.push({ id: 'desk', kind: 'closeup', x: p1.x, z: p1.z, floor: 1, parent: 'room' });
+  const p2 = model.childSpot(w, w.scenes[0], 3, 2);
+  assert.deepEqual(p2, { x: 4.5, z: 5 });                                  // the next one beside the first
+  w.scenes.push({ id: 'drawer', kind: 'closeup', x: 1.5, z: 7, floor: 1, parent: 'desk' });
+  assert.deepEqual([...model.descendantsOf(w, 'room')].sort(), ['desk', 'drawer']);
+  assert.deepEqual(model.ancestorsOf(w, 'drawer').map((q) => q.id), ['desk', 'room']);
+});
+
+test('tidy keeps every block on the grid and apart', () => {
+  const W = world([['a'], ['b'], ['c']], both('a', 'b'));
+  W.scenes.forEach((s) => { s.x = 0.3; s.z = 0.1; });
+  const M = model.derive(W, null, null);
+  const pos = model.tidy(M, ['a', 'b', 'c']);
+  const placed = [...pos.entries()].map(([id, p]) => ({ id, kind: 'inside', ...p, floor: 0 }));
+  for (const q of placed) {
+    assert.ok(onGrid(q.x, 6) && onGrid(q.z, 4));
+    assert.equal(model.overlapping(placed, q.x, q.z, 6, 4, 0, new Set([q.id])).length, 0);
+  }
+});

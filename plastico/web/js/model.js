@@ -2,11 +2,98 @@
 // puzzle charts, plus the analysis: routes, what the player can reach, and the checks.
 // Pure functions, no DOM: tests/model.test.mjs runs them under node.
 
+// w and d are a new scene's footprint in whole grid cells; h is how tall its block stands.
 export const KINDS = {
-  outside: { label: 'Outside', long: 'Outside (third person)', w: 12, d: 6.75, h: 0.5 },
-  inside: { label: 'Inside', long: 'Inside (first person)', w: 5.6, d: 4, h: 3 },
-  closeup: { label: 'Close-up', long: 'Close-up (a view of one thing)', w: 3.2, d: 2.4, h: 1.8 },
+  outside: { label: 'Outside', long: 'Outside (third person)', w: 12, d: 7, h: 0.5 },
+  inside: { label: 'Inside', long: 'Inside (first person)', w: 6, d: 4, h: 3 },
+  closeup: { label: 'Close-up', long: 'Close-up (a view of one thing)', w: 3, d: 2, h: 1.8 },
 };
+
+// --- the ground grid: one unit per cell from the origin, a heavier line every MAJOR. The grid on screen,
+// snapping and the footprints all use these, so a block's edges always fall on grid lines.
+export const GRID = 1;
+export const MAJOR = 5;
+export const MAX_CELLS = 40;
+const cells = (v, dflt) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 1 ? Math.min(MAX_CELLS, n) : dflt; };
+/** A scene's block: footprint w × d (whole cells) and height h. */
+export function sizeOf(s) {
+  const k = KINDS[s && s.kind] || KINDS.inside;
+  return { w: cells(s && s.w, k.w), d: cells(s && s.d, k.d), h: k.h };
+}
+/** The centre on one axis that puts both edges of a block `size` cells long on grid lines. */
+export function snapAxis(c, size) { return Math.round((c - size / 2) / GRID) * GRID + size / 2; }
+export function snapCenter(x, z, w, d) { return { x: snapAxis(x, w), z: snapAxis(z, d) }; }
+export function footprint(x, z, w, d) { return { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 }; }
+const EPS = 1e-6;
+/** True if two footprints share some area (touching along an edge is fine). */
+export function overlap(a, b) { return a.x0 < b.x1 - EPS && b.x0 < a.x1 - EPS && a.z0 < b.z1 - EPS && b.z0 < a.z1 - EPS; }
+/** The scenes on `floor` whose blocks would overlap a block w × d centred at x, z. */
+export function overlapping(scenes, x, z, w, d, floor, skip = new Set()) {
+  const f = footprint(x, z, w, d);
+  return scenes.filter((q) => !skip.has(q.id) && (q.floor || 0) === (floor || 0) && overlap(f, footprint(q.x, q.z, sizeOf(q).w, sizeOf(q).d)));
+}
+/** The grid position nearest to x, z (snapped) where a w × d block on `floor` overlaps nothing. */
+export function freeSpot(scenes, x, z, w, d, floor, skip = new Set()) {
+  const c = snapCenter(x, z, w, d);
+  for (let r = 0; r <= 60; r++) {
+    let best = null, bestD = Infinity;
+    for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+      if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+      const px = c.x + i * GRID, pz = c.z + j * GRID;
+      if (overlapping(scenes, px, pz, w, d, floor, skip).length) continue;
+      const dd = Math.hypot(i, j);
+      if (dd < bestD) { bestD = dd; best = { x: px, z: pz }; }
+    }
+    if (best) return best;
+  }
+  return c;
+}
+
+/** A group of blocks (a scene and the scenes inside it, at their positions before the move) moved by dx, dz
+ * and df floors: the nearest grid offset to dx, dz at which none of them overlaps a block outside the group. */
+export function freeShift(scenes, group, dx, dz, df = 0) {
+  const ids = new Set(group.map((g) => g.id));
+  const others = scenes.filter((q) => !ids.has(q.id));
+  for (let r = 0; r <= 40; r++) {
+    let best = null, bestD = Infinity;
+    for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+      if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+      const ox = dx + i * GRID, oz = dz + j * GRID;
+      if (group.some((g) => overlapping(others, g.x + ox, g.z + oz, sizeOf(g).w, sizeOf(g).d, (g.floor || 0) + df).length)) continue;
+      const dd = Math.hypot(i, j);
+      if (dd < bestD) { bestD = dd; best = { dx: ox, dz: oz }; }
+    }
+    if (best) return best;
+  }
+  return { dx, dz };
+}
+
+// --- scenes inside scenes: a scene can have a parent; children follow their parent's act ---
+export function childrenOf(world, id) { return world.scenes.filter((q) => q.parent === id); }
+export function descendantsOf(world, id) {
+  const out = new Set(), q = [id];
+  while (q.length) { const p = q.pop(); for (const c of world.scenes) if (c.parent === p && !out.has(c.id)) { out.add(c.id); q.push(c.id); } }
+  return out;
+}
+export function ancestorsOf(world, id) {
+  const out = [], by = new Map(world.scenes.map((q) => [q.id, q]));
+  let cur = by.get(id), guard = 0;
+  while (cur && cur.parent && by.has(cur.parent) && guard++ < 200) { cur = by.get(cur.parent); out.push(cur); }
+  return out;
+}
+/** Where a new child of `parent` goes: just below it on the map (towards +z), edges on the grid, nothing overlapped. */
+export function childSpot(world, parent, w, d) {
+  const P = sizeOf(parent), floor = parent.floor || 0;
+  const left = parent.x - P.w / 2, z = parent.z + P.d / 2 + d / 2;
+  // along the parent's bottom edge, from its left corner (after the children already there)
+  const kids = childrenOf(world, parent.id).reduce((n, k) => n + sizeOf(k).w, 0);
+  for (let k = 0; k < P.w + kids; k++) {
+    const off = (kids + k) % Math.max(1, P.w + kids);
+    const x = left + off + w / 2;
+    if (!overlapping(world.scenes, x, z, w, d, floor).length) return { x, z };
+  }
+  return freeSpot(world.scenes, left + w / 2, z, w, d, floor);    // that edge is taken: the nearest free place
+}
 export const STATE_LABEL = { game: 'In the game', ready: 'Ready to build', idea: 'Idea', delete: 'To delete' };
 export const FLOOR_H = 4.4;
 
@@ -70,7 +157,8 @@ export function derive(world, game, charts, uploads = []) {
       steps.get(n.scene).push({ chart: c, node: n });
     }
   }
-  const M = { world, game, charts, phases, scenes, links, pairs, out, inn, openEnds, people, steps };
+  const chartById = new Map(((charts && charts.charts) || []).map((c) => [c.id, c]));
+  const M = { world, game, charts, chartById, phases, scenes, links, pairs, out, inn, openEnds, people, steps };
   M.start = world.start && scenes.has(world.start) ? world.start : '';
   return M;
 }
@@ -313,8 +401,8 @@ export function stats(M) {
 // and a weak pull back home keeps the map recognisable.
 export function tidy(M, ids) {
   const nodes = ids.map((id) => {
-    const s = M.scenes.get(id); const k = KINDS[s.kind] || KINDS.inside;
-    return { id, x: s.x, z: s.z, x0: s.x, z0: s.z, floor: s.floor, r: Math.hypot(k.w, k.d) / 2 };
+    const s = M.scenes.get(id); const k = sizeOf(s);
+    return { id, x: s.x, z: s.z, x0: s.x, z0: s.z, floor: s.floor, w: k.w, d: k.d, r: Math.hypot(k.w, k.d) / 2 };
   });
   const at = new Map(nodes.map((n) => [n.id, n]));
   const edges = [...M.pairs.values()].filter((P) => at.has(P.a) && at.has(P.b) && P.state !== 'delete').map((P) => [at.get(P.a), at.get(P.b)]);
@@ -347,5 +435,13 @@ export function tidy(M, ids) {
       n.z += Math.max(-1.5, Math.min(1.5, f[1])) * (0.3 + 0.7 * t);
     }
   }
-  return new Map(nodes.map((n) => [n.id, { x: Math.round(n.x * 2) / 2, z: Math.round(n.z * 2) / 2 }]));
+  // back on the grid, and never on top of each other (nor of scenes left where they were)
+  const placed = [...M.scenes.values()].filter((q) => !at.has(q.id)).map((q) => ({ id: q.id, x: q.x, z: q.z, floor: q.floor, w: sizeOf(q).w, d: sizeOf(q).d }));
+  const out = new Map();
+  for (const n of [...nodes].sort((a, b) => (b.w * b.d) - (a.w * a.d))) {
+    const p = freeSpot(placed, n.x, n.z, n.w, n.d, n.floor);
+    placed.push({ id: n.id, x: p.x, z: p.z, floor: n.floor, w: n.w, d: n.d });
+    out.set(n.id, p);
+  }
+  return out;
 }

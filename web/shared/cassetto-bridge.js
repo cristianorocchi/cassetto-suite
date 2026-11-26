@@ -14,6 +14,7 @@
  *   cassetto.register({flush, navigate})   what the shell may ask of this page
  *   cassetto.navigate(module, target) show another module, at `target` (a scene, a chart step...)
  *   cassetto.status(state, text)      saved | busy | dirty | err, for the shell's save indicator
+ *   cassetto.selected(target)         what the page shows now ({scene} or {chart}), for the project tree
  *   cassetto.error(message)           a problem the person should see
  */
 (function () {
@@ -57,7 +58,7 @@
       on(type, fn) { if (!subs.has(type)) subs.set(type, new Set()); subs.get(type).add(fn); return () => subs.get(type).delete(fn); },
       register(h) { hooks = h || {}; const t = new URLSearchParams(location.hash.slice(1)).get('target'); if (t && hooks.navigate) { try { hooks.navigate(JSON.parse(t)); } catch (e) { /* bad link */ } } },
       navigate(mod, target) { location.href = `/#module=${encodeURIComponent(mod)}${target ? '&target=' + encodeURIComponent(JSON.stringify(target)) : ''}`; },
-      status() {}, error(msg) { console.warn(msg); },
+      status() {}, selected() {}, error(msg) { console.warn(msg); },
     };
   }
 })();

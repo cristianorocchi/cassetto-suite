@@ -28,7 +28,16 @@ It opens in its own window at http://127.0.0.1:8766/. Closing the terminal windo
 
 ## Editing
 
-- **Add a scene:** double-click the ground, or press **Add scene** (N).
+- **Add a scene:** press **Add scene** (N) or double-click the ground. The dialog asks where it goes,
+  in an act or **inside another scene**, and shows the full place ("Act 1 › Lighthouse › Lamp room")
+  before you confirm. A scene inside another sits just below it on the map, moves with it, follows
+  its act, and is listed under it. **Inside** in the scene's panel changes it later.
+- **Size and grid:** every block is a whole number of grid cells (Width × Depth in the panel; Kind
+  sets the starting size). Its edges, not its centre, snap to the grid lines, so blocks sit side by
+  side without gaps. A drop that would land on another block slides to the nearest free place.
+  Shift places freely.
+- **Puzzle charts of a scene:** the scene's panel lists the charts put with it. Open one, add any
+  chart of the project, make a new one for the scene, or take one off (the chart itself stays).
 - **Move a scene:** drag it. Hold Shift for free placement instead of the half-unit grid. While you
   hold it, the wheel takes it up a floor (wheel away from you) or down one; with nothing held, the
   wheel zooms.

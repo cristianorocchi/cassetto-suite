@@ -70,8 +70,38 @@ button,input,select,textarea{font:inherit;color:inherit}
 .mi-head{padding:8px 9px 4px;font:600 10.5px/1 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .mi-note{padding:4px 9px 8px;font-size:12px;color:var(--muted)}
 
-.stage{position:relative;min-height:0}
+.stage{position:relative;min-height:0;display:flex}
+.work{position:relative;flex:1;min-width:0}
 .frames{position:absolute;inset:0}
+.tree-toggle{width:30px;height:30px;display:grid;place-items:center;border:1px solid transparent;border-radius:6px;background:none;cursor:pointer;color:var(--muted);flex:none;margin-right:2px}
+.tree-toggle:hover{background:var(--surface-2);color:var(--ink)}
+.tree-toggle[aria-pressed="true"]{color:var(--ink)}
+.tree-toggle svg{width:16px;height:16px}
+
+/* the project tree: acts, the scenes in them, scenes inside scenes, the charts put with each scene */
+.tree{width:264px;flex:none;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);min-height:0}
+.tree-head{display:flex;align-items:center;justify-content:space-between;padding:9px 10px 7px 12px;font:600 10.5px/1 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line-2)}
+.tree-btn{border:0;background:none;color:var(--muted);font:500 11px/1 var(--f-ui);letter-spacing:0;text-transform:none;cursor:pointer;padding:4px 6px;border-radius:4px}
+.tree-btn:hover{background:var(--surface-2);color:var(--ink)}
+.tree-body{flex:1;overflow:auto;padding:4px 4px 16px}
+.tree-body ul{list-style:none;margin:0;padding:0}
+.tn{display:flex;align-items:center;gap:4px;height:26px;padding-right:6px;border-radius:5px;cursor:pointer;font-size:13px;color:var(--ink);white-space:nowrap;user-select:none}
+.tn:hover{background:var(--surface-2)}
+.tn.sel{background:color-mix(in srgb,var(--ink) 10%,var(--surface));font-weight:500}
+.tn:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+.tn .tw{width:16px;height:16px;flex:none;display:grid;place-items:center;color:var(--muted);border-radius:3px}
+.tn .tw svg{width:10px;height:10px;transition:transform .12s}
+.tn[aria-expanded="false"] .tw svg{transform:rotate(-90deg)}
+.tn .ic{width:15px;height:15px;flex:none;color:var(--muted)}
+.tn .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tn .ct{margin-left:auto;padding-left:6px;font:500 10.5px/1 var(--f-mono);color:var(--muted)}
+.tn.act .nm{font-weight:600}
+.tn.chart .ic{color:var(--ok)}
+.tn.chart .nm{color:var(--ink-2)}
+.tn.gone .nm{text-decoration:line-through;color:var(--muted)}
+.tn.missing .nm{color:var(--danger);font-style:italic}
+.tn.group .nm{color:var(--muted);font-style:italic}
+.tree-empty{padding:10px 12px;color:var(--muted);font-size:12.5px}
 .frames iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:var(--paper)}
 .loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);background:var(--paper)}
 

@@ -23,13 +23,13 @@ from ..core.project import ProjectError
 from ..paths import PLASTICO_WEB
 
 WORLD = "world"
-WORLD_VERSION = 1      # plastico.store's "v"
+WORLD_VERSION = store.VERSION      # plastico.store's "v" (2: grid sizes, scenes inside scenes, charts per scene)
 
 
 class PlasticoModule(Module):
     id = "plastico"
     title = "Plastico"
-    data_version = 1
+    data_version = 2      # 2: the world is at store version 2 (opening a version 1 project brings it up)
     web_dir = PLASTICO_WEB
     api_prefixes = ("worlds", "godot-projects")
 
@@ -110,12 +110,17 @@ class PlasticoModule(Module):
             "acts": [[a["id"], a.get("name", "")] for a in w["acts"]],
             "start": w.get("start", ""),
             "godot": w.get("godot", ""),
+            # the project's structure, for the tree: every scene with its act, the scene it is in, its charts
+            "hierarchy": [{"id": s["id"], "name": s["name"], "act": s["act"], "parent": s.get("parent", ""),
+                           "charts": list(s.get("charts") or []), "kind": s["kind"], "delete": bool(s.get("delete"))}
+                          for s in w["scenes"]],
         }
 
     def provides(self) -> list[Interface]:
         return [Interface("world.catalog", self.catalog,
-                          "() -> {world, scenes: [[id, name]], people: [[id, name]], phases, acts: [[id, name]], start, godot}. "
-                          "Scenes marked to delete are left out.")]
+                          "() -> {world, scenes: [[id, name]], people: [[id, name]], phases, acts: [[id, name]], start, godot, "
+                          "hierarchy: [{id, name, act, parent, charts, kind, delete}]}. `scenes` leaves out scenes marked "
+                          "to delete; `hierarchy` has them all, each with the scene it is in and the chart ids associated with it.")]
 
     # --- HTTP: Plastico's own API, one world per project ---
     def handle(self, h, method: str, parts: list[str], q: dict):

@@ -59,7 +59,8 @@ of Qt the window never loads (`packaging/trim_qt.py`). The result is about 450 M
 ```
 My game/
   cassetto.json        manifest: {"format": "cassetto.project", "version": 1, name, id, modules: {plastico: {version}, puzzles: {version}}}
-  plastico/world.json  the world plan (Plastico's own format, "v": 1), world.files/ sketches, .history/ the last 60 saves
+  plastico/world.json  the world plan (Plastico's own format, "v": 2: block sizes in grid cells, parent scene, charts per scene),
+                       world.files/ sketches, .history/ the last 60 saves
   puzzles/charts/      one <id>.json per chart (the Puzzle Charts page's own document, "v": 1); .trash/ deleted charts
   backups/             what each Godot build replaced
 ```
@@ -110,12 +111,18 @@ puzzle-charts/       Puzzle Charts: index.html is still the claude.ai artifact p
 | Scenes, people, times of day, acts of the world | Plastico | `world.catalog` | Puzzle Charts: the Where/Who pickers and the "not in the world" checks | read on every request, no cache; Puzzle Charts reloads on each `world.changed` |
 | Puzzle charts (steps, scenes, game ids, links) | Puzzle Charts | `puzzles.charts` | Plastico: each scene's steps, where a lock's key is found, the "chart place missing" check | live from the chart files; Plastico refreshes on each `puzzles.changed` |
 | A scene's id changing | Plastico (asks) | `puzzles.rename_scene` | Puzzle Charts moves the steps placed there | when the scene's name sets its new id |
+| Which charts go with which scene (one chart can go with many) | Plastico, on each scene (`charts: [chart ids]` in world.json) | `world.catalog` → `hierarchy` | the project tree, Puzzle Charts ("Scenes" of a chart), `puzzles.references` (charts deleted but still put with a scene) | when a scene's panel adds or takes off a chart |
+| Scenes inside scenes (`parent`), acts | Plastico | `world.catalog` → `hierarchy` | the project tree | on every save of the world |
 | Steps pointing at scenes or people the world lacks | Puzzle Charts | `puzzles.references` | the shell's "broken links" counter and list | on every change of either side |
 
 The two modules link both ways. From a scene in Plastico, you can open any of its steps in Puzzle
 Charts, or add a new step already placed in that scene. From a step in Puzzle Charts, you can show its
 scene in Plastico.
 
+- **The project tree** (left, Ctrl+B) shows acts › scenes › scenes inside them › the charts put with
+  each scene, plus the charts that aren't with any scene. A scene opens in Plastico, a chart in Puzzle
+  Charts, an act filters Plastico to it. It reloads on every `world.changed` / `puzzles.changed`, and
+  follows what the modules select.
 - **Changes from outside.** The core notices edits made outside the app, by an editor, git or Claude,
   within two seconds, and both pages follow.
 - **A missing reference** is a warning, never an error. It shows in three places: the step's panel,

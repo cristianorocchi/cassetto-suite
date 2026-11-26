@@ -15,10 +15,11 @@ def test_new_project_has_manifest_and_module_folders(core, home):
     p = core.create_project(home / "projects" / "Tiny", "Tiny")
     m = json.loads((p.path / "cassetto.json").read_text())
     assert m["format"] == "cassetto.project" and m["version"] == 1 and m["name"] == "Tiny"
-    assert m["modules"] == {"plastico": {"version": 1}, "puzzles": {"version": 1}}
+    assert m["modules"] == {"plastico": {"version": 2}, "puzzles": {"version": 1}}
     assert (p.path / "plastico" / "world.json").is_file()
     assert (p.path / "puzzles" / "charts").is_dir()
-    assert {i["name"] for i in core.interfaces()} == {"world.catalog", "puzzles.charts", "puzzles.rename_scene", "puzzles.references"}
+    assert {i["name"] for i in core.interfaces()} == {"world.catalog", "puzzles.charts", "puzzles.create_chart",
+                                                     "puzzles.rename_scene", "puzzles.references"}
 
 
 def test_refuses_newer_formats_and_damaged_files(core, home):
@@ -186,3 +187,62 @@ def test_rename_project_renames_the_world(core, home):
     core.close_project()
     p = core.open_project(home / "p")
     assert p.name == "Better name"
+
+
+def test_a_version_1_world_comes_up_to_version_2_on_the_grid(core, home):
+    """Projects made before grid sizes, parents and chart associations open unchanged in meaning."""
+    from plastico import store
+    p = core.create_project(home / "old", "Old")
+    core.close_project()
+    v1 = {"v": 1, "id": "world", "name": "Old", "scenes": [
+        {"id": "square", "name": "Square", "kind": "outside", "x": 0.5, "z": 0, "floor": 0},
+        {"id": "shop", "name": "Shop", "kind": "inside", "x": 12.5, "z": -3.5, "floor": 0},
+        {"id": "desk", "name": "Desk", "kind": "closeup", "x": 3.0, "z": 9.0, "floor": 1}], "links": []}
+    (p.path / "plastico" / "world.json").write_text(json.dumps(v1))
+    m = json.loads((p.path / "cassetto.json").read_text())
+    m["modules"]["plastico"]["version"] = 1
+    (p.path / "cassetto.json").write_text(json.dumps(m))
+    core.open_project(p.path)
+    assert json.loads((p.path / "cassetto.json").read_text())["modules"]["plastico"]["version"] == 2
+    w = store.load("world", p.path / "plastico")
+    assert w["v"] == 2
+    for s in w["scenes"]:
+        assert isinstance(s["w"], int) and isinstance(s["d"], int) and s["parent"] == "" and s["charts"] == []
+        for c, size in ((s["x"], s["w"]), (s["z"], s["d"])):      # both edges on grid lines
+            assert (c - size / 2) == int(c - size / 2) and (c + size / 2) == int(c + size / 2)
+    sizes = {s["id"]: (s["w"], s["d"]) for s in w["scenes"]}
+    assert sizes == {"square": (12, 7), "shop": (6, 4), "desk": (3, 2)}
+    by = {s["id"]: s for s in w["scenes"]}
+    assert abs(by["shop"]["x"] - 12.5) <= 0.5 and abs(by["shop"]["z"] + 3.5) <= 0.5   # moved by under a cell
+
+
+def test_parents_and_chart_associations_are_kept_and_checked(core, home):
+    from plastico import store
+    p = core.create_project(home / "p", "P")
+    root = p.path / "plastico"
+    cid = core.call("puzzles.create_chart", "Lighthouse")
+    w = store.load("world", root)
+    w["acts"].append({"id": "2", "name": "Night", "start": ""})
+    w["scenes"] = [
+        {"id": "lighthouse", "name": "Lighthouse", "act": "2", "charts": [cid, cid, "gone"]},
+        {"id": "lamp_room", "name": "Lamp room", "act": "1", "parent": "lighthouse", "charts": [cid]},
+        {"id": "lamp", "name": "Lamp", "parent": "lamp_room"},
+        {"id": "a", "name": "A", "parent": "b"}, {"id": "b", "name": "B", "parent": "a"},     # a loop
+        {"id": "orphan", "name": "Orphan", "parent": "nowhere"},
+    ]
+    store.save(w, root=root)
+    core.close_project()
+    core.open_project(p.path)            # reopened: everything as saved
+    w = store.load("world", root)
+    by = {s["id"]: s for s in w["scenes"]}
+    assert by["lighthouse"]["charts"] == [cid, "gone"] and by["lamp_room"]["charts"] == [cid]
+    assert by["lamp_room"]["parent"] == "lighthouse" and by["lamp"]["parent"] == "lamp_room"
+    assert by["lamp_room"]["act"] == "2" and by["lamp"]["act"] == "2"      # children are in their parent's act
+    assert by["orphan"]["parent"] == "" and "" in (by["a"]["parent"], by["b"]["parent"])
+    cat = core.call("world.catalog")
+    h = {s["id"]: s for s in cat["hierarchy"]}
+    assert h["lamp"]["parent"] == "lamp_room" and h["lighthouse"]["charts"] == [cid, "gone"]
+    refs = core.call("puzzles.references")
+    assert refs["missing_charts"] == [{"scene": "lighthouse", "scene_name": "Lighthouse", "chart": "gone"}]
+    # the chart is one: listed once in the project, whatever the scenes that point at it
+    assert [c["id"] for c in core.call("puzzles.charts")["charts"]] == [cid]

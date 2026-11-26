@@ -79,6 +79,38 @@ def charts_on_disk(project: Path) -> list[dict]:
     return [json.loads(f.read_text()) for f in sorted((project / "puzzles" / "charts").glob("*.json"))]
 
 
+def world_on_disk(project: Path) -> dict:
+    return json.loads((project / "plastico" / "world.json").read_text())
+
+
+def on_grid(s: dict) -> bool:
+    return all(float(c - n / 2).is_integer() and float(c + n / 2).is_integer() for c, n in ((s["x"], s["w"]), (s["z"], s["d"])))
+
+
+def wait_saved(page):
+    page.wait_for_function("document.querySelector('#status-text').textContent === 'Saved'")
+    page.wait_for_timeout(700)
+
+
+def add_scene(pl, name, inside=""):
+    """Plastico's Add scene dialog: a name, and an act or a scene to put it in."""
+    pl.click("#btn-add")
+    pl.wait_for_selector("#f-new-name")
+    pl.fill("#f-new-name", name)
+    if inside:
+        pl.select_option("#f-new-parent", inside)
+        assert pl.eval_on_selector("input[name=where][value=parent]", "e => e.checked")
+    text = pl.text_content("#f-new-where")
+    pl.click("#f-new-go")
+    pl.wait_for_function(f"document.querySelector('#f-name') && document.querySelector('#f-name').value === {json.dumps(name)}")
+    pl.press("#f-name", "Tab")          # the name sets the id
+    return text
+
+
+def tree_rows(page):
+    return page.eval_on_selector_all("#tree-body .tn", "rs => rs.map(r => [r.className.split(' ')[1], parseInt(r.style.paddingLeft), r.querySelector('.nm').textContent])")
+
+
 def test_the_suite_end_to_end(server, browser, home):
     core, srv = server()
     page, errors = open_shell(browser, srv.url)
@@ -88,114 +120,179 @@ def test_the_suite_end_to_end(server, browser, home):
     shot(page, "01-welcome")
     page.click("text=New project")
     page.fill(".modal-box input >> nth=0", "Lighthouse Island")
-    shot(page, "02-new-project")
     page.click(".modal-box >> text=Create")
     page.wait_for_selector("#welcome", state="hidden")
     project = home / "projects" / "Lighthouse Island"
     assert (project / "cassetto.json").is_file()
-    assert page.text_content("#proj-name") == "Lighthouse Island"
+    page.wait_for_selector("#tree:not([hidden]) .tn.act")
 
-    # 2. Plastico: two scenes, named in its own panel
+    # 2. scenes through the Add scene dialog: two in act 1, one inside the lighthouse
     pl = frame(page, "plastico")
-    pl.wait_for_selector("#empty:not([hidden]) .btn.primary")
-    pl.click("#empty .btn.primary")      # "Add a scene"
-    pl.fill("#f-name", "Harbour")
-    pl.press("#f-name", "Tab")
-    pl.wait_for_function("document.querySelector('#f-id') && document.querySelector('#f-id').value === 'harbour'")
+    pl.wait_for_selector("#empty:not([hidden])")
+    assert "Outside" not in pl.text_content("#btn-add")
+    t = add_scene(pl, "Harbour")
+    assert "It goes in: Act 1 › Harbour" in t
+    pl.wait_for_function("document.querySelector('#f-id').value === 'harbour'")
     pl.press("#f-name", "Escape")
-    pl.locator("body").press("n")
-    pl.wait_for_function("document.querySelector('#f-id') && document.querySelector('#f-id').value !== 'harbour'")
-    pl.fill("#f-name", "Lighthouse")
-    pl.press("#f-name", "Tab")
+    add_scene(pl, "Lighthouse")
     pl.wait_for_function("document.querySelector('#f-id').value === 'lighthouse'")
-    page.wait_for_function("document.querySelector('#status-text').textContent === 'Saved'")
-    world = json.loads((project / "plastico" / "world.json").read_text())
-    assert sorted(s["id"] for s in world["scenes"]) == ["harbour", "lighthouse"]
-    shot(page, "03-plastico")
+    t = add_scene(pl, "Lamp room", inside="lighthouse")
+    assert "Act 1 › Lighthouse › Lamp room" in t
+    pl.wait_for_function("document.querySelector('#f-id').value === 'lamp_room'")
+    wait_saved(page)
+    w = world_on_disk(project)
+    by = {s["id"]: s for s in w["scenes"]}
+    assert w["v"] == 2 and by["lamp_room"]["parent"] == "lighthouse" and by["lamp_room"]["act"] == "1"
+    assert all(on_grid(s) for s in w["scenes"])
+    lh, lr = by["lighthouse"], by["lamp_room"]
+    assert lr["z"] > lh["z"]          # below its parent on the map (touching it when that edge is free: tests/model.test.mjs)
+    # the tree: Act 1 › Harbour, Lighthouse › Lamp room (nested one level deeper)
+    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn .nm')].some(n => n.textContent === 'Lamp room')")
+    rows = tree_rows(page)
+    depth = {name: pad for _, pad, name in rows}
+    assert depth["Lamp room"] > depth["Lighthouse"] > depth["Act 1"]
+    shot(page, "02-scenes-and-tree")
 
-    # 3. from the Lighthouse's panel, plan a puzzle step there: Puzzle Charts opens with it
-    pl.click("text=Add a puzzle step here")
-    pz = frame(page, "puzzles")
+    # 3. a new chart from the lighthouse's panel: made in Puzzle Charts, put with the scene, opened there
+    page.click("#tree .tn.scene >> text=Lighthouse")
+    pl.wait_for_function("document.querySelector('#f-id') && document.querySelector('#f-id').value === 'lighthouse'")
+    pl.click("text=New chart for this scene")
     page.wait_for_function("document.querySelector('.tab[aria-selected=true]').textContent.includes('Puzzle Charts')")
-    pz.wait_for_selector("#f-title")
-    pz.wait_for_function("document.querySelector('#f-scene') && document.querySelector('#f-scene').value === 'lighthouse'")
-    pz.fill("#f-title", "Light the lamp")
-    # the scene picker lists the world's scenes (from Plastico, through the core)
-    assert pz.eval_on_selector_all("#dl-scenes option", "os => os.map(o => o.value)") == ["harbour", "lighthouse"]
-    page.wait_for_function("document.querySelector('#status-text').textContent === 'Saved'")
-    page.wait_for_timeout(900)
-    shot(page, "04-puzzle-step")
+    pz = frame(page, "puzzles")
+    pz.wait_for_function("document.querySelector('#f-chart-name') && document.querySelector('#f-chart-name').value === 'Lighthouse'")
+    pz.fill("#f-chart-name", "Light the lamp")
+    pz.wait_for_selector(".linkrow.scenes >> text=Lighthouse")          # the chart knows its scene
+    wait_saved(page)
     ch = charts_on_disk(project)
-    assert len(ch) == 1 and any(n["title"] == "Light the lamp" and n["scene"] == "lighthouse" for n in ch[0]["nodes"])
+    assert len(ch) == 1 and ch[0]["name"] == "Light the lamp"
+    cid = next(f.stem for f in (project / "puzzles" / "charts").glob("*.json"))
+    assert {s["id"]: s for s in world_on_disk(project)["scenes"]}["lighthouse"]["charts"] == [cid]
 
-    # 4. back in Plastico the step is listed in its scene, and opens in Puzzle Charts again
-    pz.click("text=Show Lighthouse in Plastico")
+    # 4. put the same chart with the harbour too: one chart, two entries in the tree
+    page.click("#tree .tn.scene >> text=Harbour")
     page.wait_for_function("document.querySelector('.tab[aria-selected=true]').textContent.includes('Plastico')")
-    pl.wait_for_selector(".steps li.link >> text=Light the lamp")
-    shot(page, "05-step-in-plastico")
+    pl.wait_for_function("document.querySelector('#f-id') && document.querySelector('#f-id').value === 'harbour'")
+    pl.select_option("#f-add-chart", cid)
+    pl.wait_for_selector("#scene-charts >> text=Light the lamp")
+    wait_saved(page)
+    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn.chart .nm')].filter(n => n.textContent === 'Light the lamp').length === 2")
+    assert len(charts_on_disk(project)) == 1
+    shot(page, "03-one-chart-two-scenes")
+    # a chart entry in the tree opens that chart
+    page.click("#tree-body .tn.chart >> nth=0")
+    page.wait_for_function("document.querySelector('.tab[aria-selected=true]').textContent.includes('Puzzle Charts')")
+    pz.wait_for_function("document.querySelector('#f-chart-name').value === 'Light the lamp'")
+    # and from a scene's panel too
+    page.click("#tree .tn.scene >> text=Harbour")
+    pl.wait_for_selector("#scene-charts >> text=Light the lamp")
+    pl.click("#scene-charts .go")
+    page.wait_for_function("document.querySelector('.tab[aria-selected=true]').textContent.includes('Puzzle Charts')")
 
-    # 5. renaming the scene in Plastico moves the step with it
+    # 5. take it off the harbour: the chart stays in the project and with the lighthouse
+    page.click("#tree .tn.scene >> text=Harbour")
+    pl.wait_for_function("document.querySelector('#f-id').value === 'harbour'")
+    pl.click("#scene-charts .x")
+    pl.wait_for_selector("#scene-charts li", state="detached")
+    wait_saved(page)
+    by = {s["id"]: s for s in world_on_disk(project)["scenes"]}
+    assert by["harbour"]["charts"] == [] and by["lighthouse"]["charts"] == [cid] and len(charts_on_disk(project)) == 1
+    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn.chart .nm')].filter(n => n.textContent === 'Light the lamp').length === 1")
+
+    # 6. resizing keeps the edges on the grid and refuses to cover a neighbour
+    page.click("#tree .tn.scene >> text=Harbour")
+    pl.wait_for_function("document.querySelector('#f-id').value === 'harbour'")
+    pl.fill("#f-w", "9")
+    pl.press("#f-w", "Tab")
+    wait_saved(page)
+    by = {s["id"]: s for s in world_on_disk(project)["scenes"]}
+    assert by["harbour"]["w"] == 9 and on_grid(by["harbour"])
+    # dragging a scene: it lands with its edges on the grid lines, nothing overlapped
+    lab = pl.locator(".lab[data-id='harbour'] .lab-name")
+    box = lab.bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 60, box["y"] + 90, steps=8)
+    page.mouse.move(box["x"] + 137, box["y"] + 151, steps=8)
+    page.mouse.up()
+    wait_saved(page)
+    w = world_on_disk(project)
+    by = {s["id"]: s for s in w["scenes"]}
+    assert (by["harbour"]["x"], by["harbour"]["z"]) != (12.0, 0.0) and all(on_grid(s) for s in w["scenes"])
+    from cassetto import paths  # noqa: F401  (the model's overlap rule, from Python: footprints share no area)
+    boxes = [(s["x"] - s["w"] / 2, s["x"] + s["w"] / 2, s["z"] - s["d"] / 2, s["z"] + s["d"] / 2) for s in w["scenes"] if s["floor"] == 0]
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            assert not (a[0] < b[1] and b[0] < a[1] and a[2] < b[3] and b[2] < a[3]), (a, b)
+
+    # 7. a step placed in the lighthouse follows its renaming; the tree follows too
+    page.click("#tree .tn.chart >> text=Light the lamp")
+    pz.wait_for_selector(".node")
+    pz.locator("body").press("f")          # fit the chart to the screen
+    pz.click(".node")
+    pz.wait_for_selector("#f-scene")
+    pz.fill("#f-scene", "lighthouse")
+    wait_saved(page)
+    page.click("#tree .tn.scene >> text=Lighthouse")
+    pl.wait_for_function("document.querySelector('#f-id').value === 'lighthouse'")
     pl.fill("#f-name", "Old lighthouse")
     pl.press("#f-name", "Tab")
     pl.wait_for_function("document.querySelector('#f-id').value === 'old_lighthouse'")
+    page.wait_for_selector("#tree .tn.scene >> text=Old lighthouse")
     for _ in range(50):
-        if any(n["scene"] == "old_lighthouse" for c in charts_on_disk(project) for n in c["nodes"]):
+        if all(n["scene"] == "old_lighthouse" for c in charts_on_disk(project) for n in c["nodes"] if n["scene"]):
             break
         page.wait_for_timeout(100)
-    assert [n["scene"] for c in charts_on_disk(project) for n in c["nodes"] if n["title"] == "Light the lamp"] == ["old_lighthouse"]
-    pl.wait_for_selector(".steps li.link >> text=Light the lamp")
-    pl.click(".steps li.link >> text=Light the lamp")
-    pz.wait_for_function("document.querySelector('#f-scene') && document.querySelector('#f-scene').value === 'old_lighthouse'")
+    assert [n["scene"] for c in charts_on_disk(project) for n in c["nodes"] if n["scene"]] == ["old_lighthouse"]
+    wait_saved(page)
+    by = {s["id"]: s for s in world_on_disk(project)["scenes"]}
+    assert by["lamp_room"]["parent"] == "old_lighthouse" and by["old_lighthouse"]["charts"] == [cid]
 
-    # 6. a step in a scene the world doesn't have: Puzzle Charts warns, the shell counts it
+    # 8. a step in a scene the world doesn't have: Puzzle Charts warns, the shell counts it
+    page.click("#tree .tn.chart >> text=Light the lamp")
+    pz.wait_for_selector(".node")
+    pz.locator("body").press("f")
+    pz.click(".node")
     pz.fill("#f-scene", "cellar")
     pz.wait_for_selector("text=No scene “cellar” in the world yet")
     page.wait_for_selector("#btn-links:not([hidden])")
     assert "1 broken link" in page.text_content("#btn-links")
-    pz.press("#f-scene", "Escape")
-    pz.locator("body").press("Escape")         # nothing selected: the chart's checks
-    pz.wait_for_selector(".issues >> text=Place not in the world")
-    shot(page, "06-broken-link")
-    page.click("#btn-links")
-    page.wait_for_selector("#menu-links >> text=is in cellar")
-    page.click("#menu-links >> text=is in cellar")
     pz.fill("#f-scene", "harbour")
     page.wait_for_selector("#btn-links", state="hidden")
 
-    # 7. switch with the keyboard
+    # 9. keyboard: modules and the tree
     page.keyboard.press("Control+1")
     page.wait_for_function("document.querySelector('.tab[aria-selected=true]').textContent.includes('Plastico')")
-    page.keyboard.press("Control+2")
-    page.wait_for_function("document.querySelector('.tab[aria-selected=true]').textContent.includes('Puzzle Charts')")
+    page.keyboard.press("Control+b")
+    page.wait_for_selector("#tree", state="hidden")
+    page.keyboard.press("Control+b")
+    page.wait_for_selector("#tree:not([hidden])")
 
-    # 8. close, then reopen from the recent list: everything is still there
-    page.wait_for_function("document.querySelector('#status-text').textContent === 'Saved'")
+    # 10. close, then reopen from the recent list: the same tree, associations and all
+    wait_saved(page)
+    before = tree_rows(page)
     page.click("#btn-project")
     page.click("text=Close the project")
     page.wait_for_selector("#welcome:not([hidden])")
     page.click(".recent >> text=Lighthouse Island")
     page.wait_for_selector("#welcome", state="hidden")
-    assert "Puzzle Charts" in page.text_content(".tab[aria-selected=true]")   # back where we were
-    page.click(".tab >> text=Plastico")
-    pl = frame(page, "plastico")
-    pl.wait_for_function("document.querySelector('#insp') && document.querySelector('#insp').textContent.includes('1 chart')")
+    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn .nm')].some(n => n.textContent === 'Lamp room')")
+    page.wait_for_timeout(500)
+    assert tree_rows(page) == before
     assert not [e for e in errors if "favicon" not in e], errors
     page.close()
 
-    # 9. a new app (a fresh core and server) opens the same project from disk
+    # 11. a new app (a fresh core and server) opens the same project from disk
     core.close_project()
     core2, srv2 = server()
     core2.open_project(project)
     page2, errors2 = open_shell(browser, srv2.url)
-    pz2 = None
     page2.wait_for_selector("#welcome", state="hidden")
-    page2.click(".tab >> text=Puzzle Charts")
-    pz2 = frame(page2, "puzzles")
-    pz2.wait_for_selector(".node >> text=Light the lamp")
+    page2.wait_for_function("[...document.querySelectorAll('#tree-body .tn .nm')].some(n => n.textContent === 'Lamp room')")
+    assert tree_rows(page2) == before
+    page2.click("#tree .tn.scene >> text=Old lighthouse")
     pl2 = frame(page2, "plastico")
-    page2.click(".tab >> text=Plastico")
-    pl2.wait_for_function("document.querySelector('#insp').textContent.includes('2') && document.querySelector('#insp').textContent.includes('1 chart')")
-    shot(page2, "07-reopened")
+    pl2.wait_for_selector("#scene-charts >> text=Light the lamp")
+    shot(page2, "04-reopened")
     assert not [e for e in errors2 if "favicon" not in e], errors2
 
 

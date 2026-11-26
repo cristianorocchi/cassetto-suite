@@ -8,10 +8,9 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
-import { KINDS, FLOOR_H } from './model.js';
+import { FLOOR_H, GRID, MAJOR, sizeOf, snapAxis, overlapping, descendantsOf } from './model.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
-const SNAP = 0.5;
 
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function colorOf(name) {
@@ -21,12 +20,8 @@ function colorOf(name) {
   return { c: new THREE.Color(v || '#888'), a: 1 };
 }
 
-export function sceneSize(S) {
-  const k = KINDS[S.kind] || KINDS.inside;
-  let { w, d, h } = k;
-  if (S.kind === 'outside' && S.frame && S.frame[0] > 0) d = Math.max(4, Math.min(9, w * S.frame[1] / S.frame[0]));
-  return { w, d, h };
-}
+// a scene's block: its footprint in whole grid cells (model.sizeOf), standing on its floor
+export function sceneSize(S) { return sizeOf(S); }
 
 export class View3D {
   constructor(stage, labels, cb) {
@@ -347,15 +342,21 @@ export class View3D {
   }
 
   buildGrid() {
+    // The lines are on the same grid snapping uses (origin 0, step GRID): a block's edges land on them.
+    // They sit a hair under y = 0 so the blocks' bases rest on the grid without flickering through it.
     const b = new THREE.Box3();
-    for (const o of this.objs.values()) { b.expandByPoint(o.g.position); }
+    for (const o of this.objs.values()) {
+      const p = o.g.position, { w, d } = o.size;
+      b.expandByPoint(new THREE.Vector3(p.x - w / 2, 0, p.z - d / 2)); b.expandByPoint(new THREE.Vector3(p.x + w / 2, 0, p.z + d / 2));
+    }
     if (b.isEmpty()) b.set(new THREE.Vector3(-20, 0, -20), new THREE.Vector3(20, 0, 20));
-    const pad = 16, step = 1;
-    const x0 = Math.floor((b.min.x - pad) / 5) * 5, x1 = Math.ceil((b.max.x + pad) / 5) * 5;
-    const z0 = Math.floor((b.min.z - pad) / 5) * 5, z1 = Math.ceil((b.max.z + pad) / 5) * 5;
-    const minor = [], major = [];
-    for (let x = x0; x <= x1; x += step) (x % 5 === 0 ? major : minor).push(x, 0, z0, x, 0, z1);
-    for (let z = z0; z <= z1; z += step) (z % 5 === 0 ? major : minor).push(x0, 0, z, x1, 0, z);
+    const pad = 16, step = GRID, M5 = MAJOR * GRID;
+    const x0 = Math.floor((b.min.x - pad) / M5) * M5, x1 = Math.ceil((b.max.x + pad) / M5) * M5;
+    const z0 = Math.floor((b.min.z - pad) / M5) * M5, z1 = Math.ceil((b.max.z + pad) / M5) * M5;
+    const minor = [], major = [], Y = -0.01;
+    const isMajor = (v) => Math.abs(Math.round(v / M5) * M5 - v) < 1e-6;
+    for (let i = 0, x = x0; x <= x1 + 1e-6; x = x0 + (++i) * step) (isMajor(x) ? major : minor).push(x, Y, z0, x, Y, z1);
+    for (let i = 0, z = z0; z <= z1 + 1e-6; z = z0 + (++i) * step) (isMajor(z) ? major : minor).push(x0, Y, z, x1, Y, z);
     const mk = (arr, col) => {
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
       return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: col.c, transparent: true, opacity: Math.min(1, col.a * 1.6), depthWrite: false }));
@@ -438,6 +439,18 @@ export class View3D {
   }
 
   setTop(top) {
+    if (this.top !== top) {
+      // The map looks straight down through a long lens (narrow field, camera far back): nearly no
+      // perspective, so a tall block's top doesn't spread past its base and the edges read on the grid.
+      // The framing stays the same: the distance grows by as much as the field narrows.
+      const fov = top ? 8 : 34;
+      const k = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / Math.tan(THREE.MathUtils.degToRad(fov / 2));
+      const v = this.camera.position.clone().sub(this.controls.target).multiplyScalar(k);
+      this.camera.fov = fov; this.camera.far = top ? 20000 : 4000; this.camera.updateProjectionMatrix();
+      this.controls.minDistance = top ? 30 : 5; this.controls.maxDistance = top ? 4000 : 600;
+      this.camera.position.copy(this.controls.target).add(v);
+      this.controls.update();
+    }
     this.top = top;
     const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
     this.controls.enableRotate = !top;
@@ -463,7 +476,9 @@ export class View3D {
   cameraState() {
     const t = this.controls.target;
     const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(t));
-    return { t: [t.x, t.y, t.z], r: s.radius, phi: s.phi, theta: s.theta, top: this.top };
+    // the distance as the normal lens would need it (the map's long lens stands much further back)
+    const k = this.top ? Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / Math.tan(THREE.MathUtils.degToRad(17)) : 1;
+    return { t: [t.x, t.y, t.z], r: s.radius * k, phi: s.phi, theta: s.theta, top: this.top };
   }
   restoreCamera(c) {
     if (!c || !Array.isArray(c.t) || !(c.r > 0)) throw new Error('no camera');
@@ -582,7 +597,10 @@ export class View3D {
     if (!this.cb.canDrag(id)) { this.cb.onSelect({ type: 'scene', id }); return; }
     const y = o.g.position.y;
     const p0 = this.ground(ev, y) || o.g.position.clone();
-    this.drag = { id, o, y, floor: o.S.floor || 0, floor0: o.S.floor || 0, wheel: 0, last: ev,
+    // the scenes inside it move with it
+    const kids = [...descendantsOf(this.data.M.world, id)].map((k) => this.objs.get(k)).filter(Boolean)
+      .map((k) => ({ o: k, start: k.g.position.clone(), floor: k.S.floor || 0 }));
+    this.drag = { id, o, y, floor: o.S.floor || 0, floor0: o.S.floor || 0, wheel: 0, last: ev, kids,
       off: o.g.position.clone().sub(p0), sx: ev.clientX, sy: ev.clientY, moved: false, start: o.g.position.clone() };
     this.controls.enabled = false;
     // while the scene is held, the wheel takes it up or down a floor (and doesn't zoom)
@@ -603,6 +621,8 @@ export class View3D {
       if (p) { d.off.x = pos.x - p.x; d.off.z = pos.z - p.z; }   // keep the scene under the pointer on its new floor
       d.o.S.floor = floor;
       this.setPost(d.o, floor);
+      this.moveKids(d);
+      this.showGhost(d);
       this.data.renderLabel(d.o.S, d.o.el);
       this.refreshPairsOf(d.id);
       if (this.cb.onFloorHint) this.cb.onFloorHint(floor);
@@ -615,9 +635,13 @@ export class View3D {
       if (!d.moved) { d.moved = true; this.stage.classList.add('dragging'); }
       const p = this.ground(e, d.y); if (!p) return;
       let x = p.x + d.off.x, z = p.z + d.off.z;
-      if (!e.shiftKey) { x = Math.round(x / SNAP) * SNAP; z = Math.round(z / SNAP) * SNAP; }
+      // snap the block's edges (not its centre) to the grid lines; Shift places it freely
+      d.free = e.shiftKey;
+      if (!e.shiftKey) { x = snapAxis(x, d.o.size.w); z = snapAxis(z, d.o.size.d); }
       d.o.g.position.set(x, d.y, z);
       d.o.S.x = x; d.o.S.z = z;
+      this.moveKids(d);
+      this.showGhost(d);
       this.refreshPairsOf(d.id);
       this.dirty = true;
     };
@@ -627,12 +651,40 @@ export class View3D {
       const d = this.drag; this.drag = null;
       this.controls.enabled = true;
       this.stage.classList.remove('dragging');
+      this.showGhost(null);
       if (!d) return;
-      if (d.moved) this.cb.onMoveScene(d.id, d.o.g.position.x, d.o.g.position.z, d.floor);
+      if (d.moved) this.cb.onMoveScene(d.id, d.o.g.position.x, d.o.g.position.z, d.floor, { free: !!d.free });
       else this.cb.onSelect({ type: 'scene', id: d.id });
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
     window.addEventListener('wheel', wheel, { capture: true, passive: false });
+  }
+
+  moveKids(d) {
+    const dx = d.o.g.position.x - d.start.x, dz = d.o.g.position.z - d.start.z, df = d.floor - d.floor0;
+    for (const k of d.kids) {
+      const f = k.floor + df;
+      k.o.g.position.set(k.start.x + dx, f * FLOOR_H, k.start.z + dz);
+      if ((k.o.S.floor || 0) !== f) { k.o.S.floor = f; this.setPost(k.o, f); }
+      this.refreshPairsOf(k.o.S.id);
+    }
+  }
+
+  // while a scene is held: its footprint on the grid of its floor, red where it would overlap another
+  showGhost(d) {
+    if (this.ghost) { this.fxG.remove(this.ghost); this.ghost.geometry.dispose(); this.ghost.material.dispose(); this.ghost = null; }
+    this.gridG.position.y = d ? d.floor * FLOOR_H : 0;
+    if (!d) { this.dirty = true; return; }
+    const { w, d: dd } = d.o.size, p = d.o.g.position, y = d.floor * FLOOR_H + 0.03;
+    const skip = new Set([d.id, ...d.kids.map((k) => k.o.S.id)]);
+    const others = [...this.data.M.scenes.values()].filter((q) => !skip.has(q.id)).map((q) => ({ ...q, x: (this.objs.get(q.id) || { g: { position: q } }).g.position.x, z: (this.objs.get(q.id) || { g: { position: q } }).g.position.z }));
+    const bad = overlapping(others, p.x, p.z, w, dd, d.floor).length > 0;
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(p.x - w / 2, y, p.z - dd / 2), new THREE.Vector3(p.x + w / 2, y, p.z - dd / 2),
+      new THREE.Vector3(p.x + w / 2, y, p.z + dd / 2), new THREE.Vector3(p.x - w / 2, y, p.z + dd / 2)]);
+    this.ghost = new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color: bad ? this.T.danger : this.T.accent, transparent: true, opacity: 0.95, depthTest: false }));
+    this.ghost.renderOrder = 10;
+    this.fxG.add(this.ghost);
   }
 
   startConnect(id, ev) {

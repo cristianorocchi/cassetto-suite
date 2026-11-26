@@ -16,6 +16,25 @@ from .godot import pascal
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 HISTORY_KEEP = 60
 DEFAULT_KIND = "inside"
+VERSION = 2          # 2: every scene has a footprint in whole grid cells (w, d), edges on the grid,
+                     #    a parent (a scene it sits in) and the puzzle charts it is associated with
+# the same numbers as web/js/model.js: a new scene's footprint per kind, the grid cell
+SIZES = {"outside": (12, 7), "inside": (6, 4), "closeup": (3, 2)}
+GRID = 1.0
+MAX_CELLS = 40
+
+
+def snap_axis(c: float, size: int) -> float:
+    """The centre that puts both edges of a block `size` cells long on grid lines."""
+    return math.floor((c - size / 2) / GRID + 0.5) * GRID + size / 2
+
+
+def _cells(v, default: int) -> int:
+    try:
+        n = int(round(float(v)))
+    except (TypeError, ValueError):
+        return default
+    return min(MAX_CELLS, n) if n >= 1 else default
 
 
 def _root(root: Path | None) -> Path:
@@ -58,7 +77,7 @@ def files_dir(wid: str, root: Path | None = None) -> Path:
 
 def blank_world(wid: str, name: str, godot: str = "") -> dict:
     return {
-        "v": 1, "id": wid, "name": name, "godot": godot, "start": "",
+        "v": VERSION, "id": wid, "name": name, "godot": godot, "start": "",
         "phases": [], "acts": [{"id": "1", "name": "", "start": ""}],
         "areas": [], "people": [], "scenes": [], "links": [],
         "rev": 0, "created": int(time.time() * 1000), "updated": int(time.time() * 1000),
@@ -67,7 +86,7 @@ def blank_world(wid: str, name: str, godot: str = "") -> dict:
 
 def normalize(w: dict) -> dict:
     """Fills missing fields and drops broken references, so the app can trust the shape."""
-    w.setdefault("v", 1)
+    old_version = int(w.get("v", 1) or 1)
     w.setdefault("name", w.get("id", "World"))
     w.setdefault("godot", "")
     w.setdefault("start", "")
@@ -108,8 +127,38 @@ def normalize(w: dict) -> dict:
         s.setdefault("away", {})   # people the game puts here that the plan takes out, per time of day
         s.setdefault("notes", "")
         s["delete"] = bool(s.get("delete", False))
+        dw, dd = SIZES.get(s["kind"], SIZES[DEFAULT_KIND])
+        s["w"], s["d"] = _cells(s.get("w"), dw), _cells(s.get("d"), dd)
+        if old_version < 2:      # from version 1: centres were on a half-unit grid, sizes fractional
+            s["x"], s["z"] = snap_axis(s["x"], s["w"]), snap_axis(s["z"], s["d"])
+        s["parent"] = s.get("parent") if isinstance(s.get("parent"), str) else ""
+        ch, seen_c = [], set()
+        for c in s.get("charts") or []:
+            if isinstance(c, str) and c and c not in seen_c:
+                seen_c.add(c)
+                ch.append(c)
+        s["charts"] = ch
         scenes.append(s)
+    # a parent must be another scene, and no scene may end up inside itself
+    by_id = {s["id"]: s for s in scenes}
+    for s in scenes:
+        if s["parent"] not in by_id or s["parent"] == s["id"]:
+            s["parent"] = ""
+    for s in scenes:
+        p, hops = s["parent"], 0
+        while p and hops <= len(scenes):
+            if p == s["id"]:
+                s["parent"] = ""
+                break
+            p, hops = by_id[p]["parent"], hops + 1
+    for s in scenes:       # children are in their parent's act
+        top, hops = s, 0
+        while top["parent"] and hops <= len(scenes):
+            top, hops = by_id[top["parent"]], hops + 1
+        if top is not s:
+            s["act"] = top["act"]
     w["scenes"] = scenes
+    w["v"] = VERSION
     pairs = set()
     links = []
     for l in w["links"]:
@@ -235,16 +284,35 @@ def save_charts(wid: str, data: dict, root: Path | None = None) -> None:
 
 # --- keeping the plan in step with the game ---
 
-def _free_spot(world: dict, near: tuple[float, float] | None, floor: int) -> tuple[float, float]:
-    taken = [(s["x"], s["z"]) for s in world["scenes"] if s["floor"] == floor]
+def _overlaps(a: tuple, b: tuple) -> bool:
+    e = 1e-6
+    return a[0] < b[1] - e and b[0] < a[1] - e and a[2] < b[3] - e and b[2] < a[3] - e
+
+
+def _box(x: float, z: float, w: int, d: int) -> tuple:
+    return (x - w / 2, x + w / 2, z - d / 2, z + d / 2)
+
+
+def free_spot(world: dict, near: tuple[float, float] | None, w: int, d: int, floor: int) -> tuple[float, float]:
+    """The grid position nearest to `near` where a w × d block on `floor` overlaps no other (as freeSpot in model.js)."""
+    taken = [_box(s["x"], s["z"], s.get("w") or SIZES[DEFAULT_KIND][0], s.get("d") or SIZES[DEFAULT_KIND][1])
+             for s in world["scenes"] if s.get("floor", 0) == floor]
     cx, cz = near if near else (0.0, 0.0)
-    for r in range(0, 40):
-        ring = max(1, r * 6)
-        for i in range(ring):
-            a = 2 * math.pi * i / ring
-            x, z = round(cx + math.cos(a) * r * 11), round(cz + math.sin(a) * r * 8)
-            if all(abs(x - tx) > 11 or abs(z - tz) > 8 for tx, tz in taken):
-                return float(x), float(z)
+    cx, cz = snap_axis(cx, w), snap_axis(cz, d)
+    for r in range(0, 80):
+        best, best_d = None, None
+        for i in range(-r, r + 1):
+            for j in range(-r, r + 1):
+                if max(abs(i), abs(j)) != r:
+                    continue
+                x, z = cx + i * GRID, cz + j * GRID
+                if any(_overlaps(_box(x, z, w, d), t) for t in taken):
+                    continue
+                dist = math.hypot(i, j)
+                if best is None or dist < best_d:
+                    best, best_d = (x, z), dist
+        if best:
+            return best
     return cx, cz + 40
 
 
@@ -279,13 +347,23 @@ def reconcile(world: dict, game: dict | None) -> bool:
                     near = (by_id[nb]["x"], by_id[nb]["z"])
                     floor = by_id[nb]["floor"]
                     break
-            x, z = _free_spot(world, near, floor)
+            w, d = SIZES.get(g["kind"], SIZES[DEFAULT_KIND])
+            fr = g.get("frame")
+            if g["kind"] == "outside" and isinstance(fr, list) and len(fr) == 2 and fr[0] > 0:
+                d = max(4, min(9, round(w * fr[1] / fr[0])))      # an outdoor plate keeps its picture's shape
+            if near:   # next to the scene it is joined to, not on top of it
+                near = (near[0] + 12, near[1])
+            x, z = free_spot(world, near, w, d, floor)
             s = {"id": sid, "name": nice_name(sid), "kind": g["kind"], "act": world["acts"][0]["id"], "area": "",
-                 "x": x, "z": z, "floor": floor, "status": "ready", "open": [], "people": {}, "notes": "", "delete": False}
+                 "x": x, "z": z, "w": w, "d": d, "floor": floor, "status": "ready", "open": [], "people": {}, "notes": "",
+                 "delete": False, "parent": "", "charts": []}
             world["scenes"].append(s)
             by_id[sid] = s
             changed = True
         elif s["kind"] != g["kind"] and s["kind"] != "closeup":
+            if (s.get("w"), s.get("d")) == SIZES.get(s["kind"]):     # the old kind's size: take the new one's
+                s["w"], s["d"] = SIZES.get(g["kind"], SIZES[DEFAULT_KIND])
+                s["x"], s["z"] = snap_axis(s["x"], s["w"]), snap_axis(s["z"], s["d"])
             s["kind"] = g["kind"]
             changed = True
     # scenes the plan deleted and the game no longer has

@@ -358,3 +358,22 @@ h2,h3{margin:0;text-wrap:balance}
 .steps + .btn{margin-top:8px}
 .in-cassetto #status,.in-cassetto #cur-name{display:none}
 .steps li.chart-name{display:block}
+
+/* Add a scene: where it goes */
+.choices{display:flex;flex-direction:column;gap:6px}
+.choice{display:flex;gap:9px;align-items:flex-start;padding:9px 10px;border:1px solid var(--line);border-radius:7px;cursor:pointer}
+.choice:has(input:checked){border-color:var(--ink);background:var(--surface-2)}
+.choice input{margin-top:3px;flex:none}
+.choice > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.choice b{font-weight:500;font-size:13px}
+.choice select{width:100%}
+.alert.info b{font-weight:600}
+.alert.info .note{margin-top:4px;color:var(--muted)}
+/* a scene's charts and the scenes inside it */
+.links .go.missing{border-style:dashed;color:var(--danger)}
+.links.charts .go svg{color:var(--ink-2)}
+.lab-meta .in{font-style:italic}
+.choice input[type="radio"]{width:auto;min-width:0;padding:0;border:0;margin:3px 0 0;flex:none;accent-color:var(--ink)}
+.stack{display:flex;flex-direction:column;gap:12px}
+/* the labels' own stacking: a selected label stays above the other labels, never above dialogs and menus */
+.labels{isolation:isolate}

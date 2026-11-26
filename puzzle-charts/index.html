@@ -123,6 +123,7 @@ h2,h3{margin:0;text-wrap:balance}
 .side-note{margin:auto 0 0;padding:14px 4px 0;font-size:12px;line-height:1.45;color:var(--muted)}
 .in-cassetto #status{display:none}
 .linkrow{margin:-4px 0 12px}
+.linkrow.scenes{margin:0;display:flex;flex-wrap:wrap;gap:6px}
 .linkrow .warn{display:block;font-size:12px;line-height:1.4;color:var(--k-item)}
 .g{width:12px;height:12px;flex:none;display:inline-block;vertical-align:-1px}
 .g path{fill:currentColor}
@@ -433,6 +434,7 @@ const GLYPHS = {
 let SCENES = [];
 let PEOPLE = [['player', 'The player']];
 let SCENE_NAME = Object.fromEntries(SCENES);
+let SCENES_OF_CHART = new Map();   // chart id -> the world's scenes it is put with (Plastico, through Cassetto)
 let PERSON_NAME = Object.fromEntries(PEOPLE.map(([id, n]) => [id, n.split(',')[0]]));
 // The scene and people lists follow Plastico, the 3D world model, when Claude has synced the two
 // (database doc meta/world). Until then, and if that doc can't be read, the lists above are used.
@@ -452,6 +454,11 @@ function applyWorld(d) {
   if (people) PEOPLE = [['player', 'The player']].concat(people.filter(([id]) => id !== 'player'));
   SCENE_NAME = Object.fromEntries(SCENES);
   PERSON_NAME = Object.fromEntries(PEOPLE.map(([id, n]) => [id, n.split(',')[0]]));
+  SCENES_OF_CHART = new Map();
+  for (const sc of Array.isArray(d.hierarchy) ? d.hierarchy.slice(0, 2000) : []) {
+    if (!sc || typeof sc.id !== 'string' || sc.delete || !Array.isArray(sc.charts)) continue;
+    for (const cid of sc.charts) { if (!SCENES_OF_CHART.has(cid)) SCENES_OF_CHART.set(cid, []); SCENES_OF_CHART.get(cid).push([sc.id, str(sc.name) || sc.id]); }
+  }
   return true;
 }
 function fillLists() {
@@ -913,6 +920,14 @@ function chartPanel(box, c) {
   sel.onchange = () => { pushUndo(); c.act = Number(sel.value); scheduleSave(); renderSide(); };
   box.append(field('Act', sel));
   box.append(field('Notes', textarea('f-chart-notes', c.notes, 'What the player is trying to do, and why', (v) => { beginEdit('chart-notes'); c.notes = v; scheduleSave(); })));
+  if (CS) {   // the scenes in Plastico this chart is put with (set from each scene's panel there)
+    const at = SCENES_OF_CHART.get(c.id) || [];
+    const sc = el('section', 'sec'); const hh = el('h3', '', 'Scenes'); if (at.length) hh.append(el('em', '', String(at.length))); sc.append(hh);
+    if (!at.length) sc.append(el('p', 'help', 'Not put with any scene yet. In Plastico, a scene’s panel adds charts to it.'));
+    const row = el('div', 'linkrow scenes');
+    for (const [id, nm] of at) { const b = el('button', 'btn small', nm); b.type = 'button'; b.title = `Show ${nm} in Plastico`; b.onclick = () => { flushNow(c.id); CS.navigate('plastico', { scene: id }); }; row.append(b); }
+    sc.append(row); box.append(sc);
+  }
 
   const an = S.an;
   const stats = el('div', 'stats');
@@ -1659,6 +1674,7 @@ function openChart(id) {
   if (S.currentId && S.currentId !== id) { flushNow(S.currentId); S.views.set(S.currentId, { ...S.view }); }
   S.currentId = id; S.sel = null; S.play = null; S.sheet = false; S.lastEdit = null;
   lsSet(LS_LAST, id);
+  if (CS && CS.selected) CS.selected({ module: 'puzzles', chart: id });
   renderCanvas();
   const v = S.views.get(id);
   if (v) { S.view = { ...v }; applyView(); } else fitView();
@@ -1836,15 +1852,6 @@ if (CS) {
     navigate: async (t) => {
       await loaded();
       if (!t) return;
-      if (t.create) {      // a new step, placed where Plastico asked
-        if (!cur()) newChart();
-        if (S.play) stopPlay();
-        const r = stage.getBoundingClientRect();
-        const w = toWorld(r.left + r.width / 2, r.top + r.height * 0.45);
-        const n = addNodeAt('action', w.x - NODE_W / 2, w.y - 40);
-        if (n) { n.scene = t.create.scene || ''; if (t.create.who) n.who = t.create.who; scheduleSave(); render(); centerOn(n.id); focusTitle(); toast(`New step in ${sceneName(n.scene) || 'the scene'}: write what happens, then link it.`); }
-        return;
-      }
       if (t.chart && !S.charts.has(t.chart)) { toast('That chart isn’t in this project any more.'); return; }
       if (t.chart && t.chart !== S.currentId) openChart(t.chart);
       if (t.step) {
