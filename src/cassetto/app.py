@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 import webbrowser
@@ -28,6 +29,7 @@ from .modules import all_modules
 from .paths import SHELL_WEB, config_dir
 
 BEAT_TIMEOUT = 45.0
+FLUSH_TIMEOUT = 6.0     # flushAll gives up after 4 s itself
 
 
 def log(msg: str) -> None:
@@ -90,12 +92,33 @@ def _run_native(url: str) -> bool:
                               background_color="#E8EDF0", text_select=True)
     api.window = w
 
-    def closing():
-        try:   # let the pages save what's still waiting
-            w.evaluate_js("window.Cassetto ? window.Cassetto.flushAll() : true")
+    # Closing runs on the GUI thread, and evaluate_js waits for the page's answer, which needs that same
+    # thread: waiting there froze the window for good. So the first close is put off, the pages save from
+    # another thread, and the window is then closed for real (or after FLUSH_TIMEOUT if a page hangs).
+    flushed = threading.Event()
+
+    def flush_then_close():
+        def save():
+            try:   # let the pages save what's still waiting
+                w.evaluate_js("window.Cassetto ? window.Cassetto.flushAll() : true")
+            except Exception:  # noqa: BLE001
+                pass
+        t = threading.Thread(target=save, daemon=True)
+        t.start()
+        t.join(FLUSH_TIMEOUT)
+        flushed.set()
+        try:
+            w.destroy()
         except Exception:  # noqa: BLE001
             pass
-        return True
+
+    def closing():
+        if flushed.is_set():
+            return True
+        if not getattr(closing, "started", False):
+            closing.started = True
+            threading.Thread(target=flush_then_close, daemon=True).start()
+        return False
     w.events.closing += closing
     gui = os.environ.get("CASSETTO_WEBVIEW_GUI") or ("qt" if _has_qt() else None)
     if gui == "qt":
