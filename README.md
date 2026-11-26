@@ -36,6 +36,9 @@ Use `--window chrome|browser|native` to choose one, or set `CASSETTO_WINDOW=chro
 choice stick. In every case the app ends when its window closes. In the browser, it ends a little
 after the tab stops checking in. Nobody has to start a server by hand.
 
+`--window none` starts only the server, with no window (for development and tests). `--port` sets
+the port (8767 by default), and `--fresh` starts without reopening the last project.
+
 Other commands:
 
 ```sh
@@ -68,11 +71,17 @@ My game/
 - **Versions.** Each format carries a version: the manifest, each module's data, and each world and
   chart.
   - A project, module or file from a newer Cassetto is refused with a message, never misread.
-  - An older one is brought up to date by the migrations in `core/project.py`.
+  - An older one is brought up to date when it opens: the manifest by the migrations in
+    `core/project.py`, the world by Plastico's own (`plastico/src/plastico/store.py`, version 1 → 2).
 - **Damaged files.** A damaged chart is reported and left on disk. A damaged world stops the project
   from opening and points at its history.
 - **One window per project.** A project is open in one Cassetto at a time (`.cassetto.lock`). A lock
   left behind by a crash doesn't count.
+- **A project as one file.** The project menu's *Export the project…* writes the whole project
+  (world, charts, sketches, history) into one `.cassetto` file, a zip without the lock. *Import a
+  project…* (in the menu, or on the welcome screen) unpacks one into a new folder named after the
+  project, adding " 2", " 3"… when that name is taken, and opens it. A file from a newer Cassetto is
+  refused.
 
 ## How it is built
 
@@ -103,6 +112,9 @@ puzzle-charts/       Puzzle Charts: index.html is still the claude.ai artifact p
   - the events;
   - `navigate(module, target)` and `call(interface, ...)`;
   - the save status and errors.
+- **The theme.** The shell's theme menu switches the whole suite between System, Light, Dark and
+  Black (OLED, dark on true black). The choice is kept per browser profile (`web/shared/theme.js`)
+  and reaches every module page at once.
 
 ## What the modules share
 
@@ -125,7 +137,7 @@ scene in Plastico.
   follows what the modules select.
 - **Changes from outside.** The core notices edits made outside the app, by an editor, git or Claude,
   within two seconds, and both pages follow.
-- **A missing reference** is a warning, never an error. It shows in three places: the step's panel,
+- **A missing reference** is a warning, never an error. It shows in four places: the step's panel,
   the chart's checks, Plastico's checks and the shell's counter. Nothing is deleted or rewritten to
   hide it.
 - **A missing module or interface.** If one is missing (`MissingInterface`), the page that needed it
