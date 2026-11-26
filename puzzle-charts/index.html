@@ -52,6 +52,14 @@
   --k-setup:#58C4B2;--k-subgoal:#E2E9EE;--k-goal:#E2E9EE;--k-action:#7BAEE8;--k-item:#DDAE52;--k-combo:#B89DEB;--k-phase:#CBAA8E;
   --goal-bg:#E2E9EE;--goal-fg:#0D141A;color-scheme:dark;
 }
+/* dark on true black, for OLED screens */
+:root[data-theme="oled"]{
+  --paper:#000;--surface:#0A0A0A;--surface-2:#151515;--ink:#E6E6E6;--ink-2:#BDBDBD;--muted:#8A8A8A;
+  --line:#262626;--line-2:#1A1A1A;--grid:rgba(255,255,255,.04);--grid-major:rgba(255,255,255,.09);--edge:#6E6E6E;
+  --danger:#F4806F;--danger-bg:#2A0F0C;--scrim:rgba(0,0,0,.7);--shadow:0 0 0 1px #1F1F1F,0 8px 24px rgba(0,0,0,.6);
+  --k-setup:#58C4B2;--k-subgoal:#E6E6E6;--k-goal:#E6E6E6;--k-action:#7BAEE8;--k-item:#DDAE52;--k-combo:#B89DEB;--k-phase:#CBAA8E;
+  --goal-bg:#E6E6E6;--goal-fg:#000;color-scheme:dark;
+}
 *,*::before,*::after{box-sizing:border-box}
 html{height:100%}
 body{height:100%;margin:0;background:var(--paper);color:var(--ink);font:400 14px/1.45 var(--f-ui);overflow:hidden}

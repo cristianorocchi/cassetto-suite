@@ -54,7 +54,10 @@ export class View3D {
     this.resize();
     this.timer = new THREE.Timer(); this.timer.connect(document);
     this.renderer.setAnimationLoop(() => this.frame());
-    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { this.readTheme(); this.rebuild(); });
+    const retheme = () => { this.readTheme(); this.rebuild(); };
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', retheme);
+    // the suite's theme switch sets data-theme on the page
+    new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
   readTheme() {
@@ -63,7 +66,7 @@ export class View3D {
       edge: colorOf('--edge').c, danger: colorOf('--danger').c, accent: colorOf('--accent').c, block: colorOf('--block').c,
       surface: colorOf('--surface').c, grid: colorOf('--grid'), gridMajor: colorOf('--grid-major'),
       areas: Array.from({ length: 8 }, (_, i) => colorOf(`--a${i}`).c),
-      dark: matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light',
+      dark: document.documentElement.dataset.theme ? document.documentElement.dataset.theme !== 'light' : matchMedia('(prefers-color-scheme: dark)').matches,
     };
     this.renderer.setClearColor(this.T.paper, 1);
     this.dirty = true;

@@ -423,6 +423,24 @@
     for (const m of r.missing_people) box.append(mi(`“${m.title}” is with ${m.who}`, `${m.chart_name}: nobody called ${m.who} in the world`, () => show('puzzles', { chart: m.chart, step: m.step })));
     box.append(el('div', 'mi-note', 'Pick a step to fix it in Puzzle Charts, or add the scene or person in Plastico.'));
   });
+  const THEMES = { system: ['System', 'Light or dark, as the system is'], light: ['Light', ''], dark: ['Dark', ''], oled: ['Black', 'Dark on true black, for OLED screens'] };
+  function setTheme(t) {
+    window.CassettoTheme.set(t);
+    for (const f of S.frames.values()) { try { f.contentWindow.CassettoTheme.apply(t); } catch (e) { /* not loaded yet */ } }
+    renderTheme();
+  }
+  function renderTheme() { $('#theme-name').textContent = THEMES[window.CassettoTheme.get()][0]; }
+  window.addEventListener('storage', (e) => { if (e.key === 'cassetto:theme') renderTheme(); });
+  menu($('#btn-theme'), $('#menu-theme'), (box) => {
+    box.append(el('div', 'mi-head', 'Theme'));
+    const cur = window.CassettoTheme.get();
+    for (const [t, [label, sub]] of Object.entries(THEMES)) {
+      const b = mi(label, sub, () => setTheme(t));
+      if (t === cur) { b.classList.add('on'); b.setAttribute('aria-current', 'true'); }
+      box.append(b);
+    }
+  });
+  renderTheme();
   $('#btn-godot').addEventListener('click', () => openInfo());
   document.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => ({ new: openNew, open: openPicker, import: openImportProject })[b.dataset.act]()));
 

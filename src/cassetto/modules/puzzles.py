@@ -40,7 +40,7 @@ PAGE_ASSETS = [
     ('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n', ''),
 ]
 FONTS_RE = re.compile(r'<link rel="stylesheet" href="https://fonts\.googleapis\.com/[^"]*">')
-BRIDGE = '<script src="/shared/cassetto-bridge.js"></script>\n<script src="cassetto-db.js"></script>\n'
+BRIDGE = '<script src="/shared/theme.js"></script>\n<script src="/shared/cassetto-bridge.js"></script>\n<script src="cassetto-db.js"></script>\n'
 
 
 def new_id() -> str:

@@ -136,7 +136,7 @@ class PlasticoModule(Module):
         """Plastico's page with the suite's bridge, so it can follow the project and reach Puzzle Charts."""
         tag = '<script type="module"'
         i = html.find(tag)
-        bridge = '<script src="/shared/cassetto-bridge.js"></script>\n'
+        bridge = '<script src="/shared/theme.js"></script>\n<script src="/shared/cassetto-bridge.js"></script>\n'
         return html[:i] + bridge + html[i:] if i >= 0 else html + bridge
 
     def fingerprint(self) -> str:

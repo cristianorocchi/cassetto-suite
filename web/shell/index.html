@@ -7,6 +7,7 @@
 <link rel="icon" href="/shell/icon.svg">
 <link rel="stylesheet" href="/shared/fonts.css">
 <link rel="stylesheet" href="/shell/shell.css">
+<script src="/shared/theme.js"></script>
 </head>
 <body>
 <div class="suite" id="suite">
@@ -32,6 +33,13 @@
         <div class="menu right wide" id="menu-links" hidden></div>
       </div>
       <button class="chip" id="btn-godot" type="button" hidden></button>
+      <div class="menu-wrap">
+        <button class="chip" id="btn-theme" type="button" aria-haspopup="true" aria-expanded="false" title="Theme">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.2a5.8 5.8 0 0 1 0 11.6z" fill="currentColor"/></svg>
+          <span id="theme-name">System</span>
+        </button>
+        <div class="menu right" id="menu-theme" hidden></div>
+      </div>
       <span class="status" id="status" data-s="ok" title=""><span class="dot"></span><span id="status-text">Ready</span></span>
     </div>
   </header>
