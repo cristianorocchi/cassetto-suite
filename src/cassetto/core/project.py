@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -227,3 +228,104 @@ def remember(p: Project) -> None:
 
 def forget(path: str) -> None:
     _write_json(_recent_file(), [r for r in recent() if r.get("path") != path])
+
+
+# --- a project as one file (export / import) ---
+# A .cassetto file is a zip of the project folder: the manifest and every module's folder, under one top folder
+# named after the project. The lock and half-written files stay out.
+
+EXPORT_SUFFIX = ".cassetto"
+EXPORT_SKIP = {LOCK}
+IMPORT_MAX_BYTES = 2 * 1024 ** 3        # unpacked: a damaged or hostile file can't fill the disk
+IMPORT_MAX_FILES = 50_000
+
+
+def export_file(p: Project, dest: Path) -> Path:
+    """Writes the whole project to `dest` (a .cassetto file) and returns where it went."""
+    import zipfile
+    dest = Path(dest).expanduser()
+    if dest.is_dir():
+        dest = dest / (_file_name(p.name) + EXPORT_SUFFIX)
+    if dest.suffix != EXPORT_SUFFIX:
+        dest = dest.with_name(dest.name + EXPORT_SUFFIX)
+    dest = dest.resolve()
+    if dest == p.path or p.path in dest.parents:
+        raise ProjectError("Save the exported file outside the project's own folder.")
+    top = _file_name(p.name)
+    tmp = dest.with_name(dest.name + ".tmp")
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+            for f in sorted(p.path.rglob("*")):
+                rel = f.relative_to(p.path)
+                if f.is_symlink() or not f.is_file() or rel.name in EXPORT_SKIP or rel.name.endswith(".tmp"):
+                    continue
+                z.write(f, f"{top}/{rel.as_posix()}")
+        tmp.replace(dest)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        raise ProjectError(f"Can't write {dest}: {e.strerror or e}.") from e
+    return dest
+
+
+def import_file(src: Path, into: Path) -> Path:
+    """Unpacks a .cassetto file into a new folder inside `into` and returns that folder (not opened yet).
+    The folder takes the project's name, with " 2", " 3"… when one by that name is already there."""
+    import zipfile
+    src = Path(src).expanduser()
+    if not src.is_file():
+        raise ProjectError(f"There's no file {src}.")
+    try:
+        z = zipfile.ZipFile(src)
+    except (zipfile.BadZipFile, OSError) as e:
+        raise ProjectError(f"{src.name} isn't an exported Cassetto project (or it's damaged).") from e
+    with z:
+        infos = [i for i in z.infolist() if not i.is_dir()]
+        names = [i.filename for i in infos]
+        # the manifest sits at the top, or in the one folder at the top
+        if MANIFEST in names:
+            root = ""
+        else:
+            tops = {n.split("/", 1)[0] for n in names}
+            root = next(iter(tops)) + "/" if len(tops) == 1 and f"{next(iter(tops))}/{MANIFEST}" in names else None
+        if root is None:
+            raise ProjectError(f"{src.name} has no Cassetto project in it (no {MANIFEST}).")
+        try:
+            m = json.loads(z.read(root + MANIFEST).decode("utf-8"))
+        except (ValueError, KeyError, UnicodeDecodeError) as e:
+            raise ProjectError(f"The project file in {src.name} is damaged and can't be read.") from e
+        if not isinstance(m, dict) or m.get("format") != FORMAT:
+            raise ProjectError(f"{src.name} has no Cassetto project in it.")
+        if isinstance(m.get("version"), int) and m["version"] > VERSION:
+            raise ProjectError(f"{src.name} was saved by a newer Cassetto (project format {m['version']}; this one "
+                               f"reads up to {VERSION}). Update Cassetto to import it.")
+        if len(infos) > IMPORT_MAX_FILES or sum(i.file_size for i in infos) > IMPORT_MAX_BYTES:
+            raise ProjectError(f"{src.name} is too big to be a Cassetto project.")
+        into = Path(into).expanduser()
+        base = _file_name(str(m.get("name") or src.stem))
+        dest, n = into / base, 2
+        while dest.exists():
+            dest, n = into / f"{base} {n}", n + 1
+        tmp = into / f".{dest.name}.importing"
+        shutil.rmtree(tmp, ignore_errors=True)
+        try:
+            for i in infos:
+                if not i.filename.startswith(root):
+                    continue
+                rel = Path(i.filename[len(root):])
+                if rel.is_absolute() or ".." in rel.parts or not rel.parts or rel.name == LOCK:
+                    continue      # nothing gets written outside the new folder
+                out = tmp / rel
+                out.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(i) as r, open(out, "wb") as w:
+                    shutil.copyfileobj(r, w)
+            tmp.rename(dest)
+        except OSError as e:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise ProjectError(f"Can't unpack the project into {into}: {e.strerror or e}.") from e
+    return dest
+
+
+def _file_name(name: str) -> str:
+    keep = "".join(c if c.isalnum() or c in " -_." else "-" for c in name).strip(" .")
+    return keep[:80] or "Project"

@@ -68,12 +68,14 @@ class _Api:
     def __init__(self):
         self.window = None
 
-    def _dialog(self, kind: str, start: str = "", types=()):
+    def _dialog(self, kind: str, start: str = "", types=(), save_as: str = ""):
         import webview
         fd = getattr(webview, "FileDialog", None)
         k = {"folder": getattr(fd, "FOLDER", None) if fd else getattr(webview, "FOLDER_DIALOG", 20),
-             "open": getattr(fd, "OPEN", None) if fd else getattr(webview, "OPEN_DIALOG", 10)}[kind]
-        res = self.window.create_file_dialog(k, directory=start or str(Path.home()), file_types=tuple(types))
+             "open": getattr(fd, "OPEN", None) if fd else getattr(webview, "OPEN_DIALOG", 10),
+             "save": getattr(fd, "SAVE", None) if fd else getattr(webview, "SAVE_DIALOG", 30)}[kind]
+        extra = {"save_filename": save_as} if kind == "save" else {}
+        res = self.window.create_file_dialog(k, directory=start or str(Path.home()), file_types=tuple(types), **extra)
         if not res:
             return ""
         return res[0] if isinstance(res, (list, tuple)) else str(res)
@@ -81,11 +83,17 @@ class _Api:
     def pick_folder(self, start: str = ""):
         return self._dialog("folder", start)
 
-    def pick_file(self, start: str = ""):
+    def pick_file(self, start: str = "", kind: str = "json"):
+        if kind == "cassetto":
+            return self._dialog("open", start, ("Cassetto projects (*.cassetto)", "All files (*.*)"))
         return self._dialog("open", start, ("JSON files (*.json)", "All files (*.*)"))
 
+    def pick_save(self, start: str = "", name: str = ""):
+        """Where to save an exported project: the system's own Save dialog."""
+        return self._dialog("save", start, ("Cassetto projects (*.cassetto)", "All files (*.*)"), save_as=name)
 
-def _run_native(url: str) -> bool:
+
+def _run_native(url: str, core: Core | None = None) -> bool:
     import webview
     api = _Api()
     w = webview.create_window(f"Cassetto {__version__}", url, js_api=api, width=1440, height=920, min_size=(900, 600),
@@ -120,6 +128,8 @@ def _run_native(url: str) -> bool:
             threading.Thread(target=flush_then_close, daemon=True).start()
         return False
     w.events.closing += closing
+    if core is not None:     # POST /api/core/quit closes it like its close button
+        core.on_quit = w.destroy
     gui = os.environ.get("CASSETTO_WEBVIEW_GUI") or ("qt" if _has_qt() else None)
     if gui == "qt":
         # Qt's sandbox refuses to run as root, so it is off only then.
@@ -158,7 +168,7 @@ def _chrome() -> str:
     return ""
 
 
-def _run_chrome(url: str) -> bool:
+def _run_chrome(url: str, core: Core | None = None) -> bool:
     exe = _chrome()
     if not exe:
         return False
@@ -169,6 +179,8 @@ def _run_chrome(url: str) -> bool:
         proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         return False
+    if core is not None:
+        core.on_quit = proc.terminate
     proc.wait()     # its own profile is its own browser: it ends when the window closes
     return True
 
@@ -196,13 +208,13 @@ def _wait_for_beats(srv: Server | None) -> None:
             return
 
 
-def open_window(url: str, mode: str, srv: Server | None) -> str:
+def open_window(url: str, mode: str, srv: Server | None, core: Core | None = None) -> str:
     order = {"auto": ["native", "chrome", "browser"], "native": ["native", "chrome", "browser"],
              "chrome": ["chrome", "browser"], "browser": ["browser"]}.get(mode, [mode])
     for m in order:
-        if m == "native" and _native_available() and _run_native(url):
+        if m == "native" and _native_available() and _run_native(url, core):
             return m
-        if m == "chrome" and _run_chrome(url):
+        if m == "chrome" and _run_chrome(url, core):
             return m
         if m == "browser" and _run_browser(url, srv):
             return m
@@ -238,6 +250,7 @@ def run(project: str | None = None, window: str = "auto", port: int = PORT, reop
     for sig in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGHUP", None)):
         if sig is not None:
             signal.signal(sig, stop)
+    core.on_quit = lambda: os.kill(os.getpid(), signal.SIGTERM)    # no window of its own: just stop
     target = project
     if not target and reopen_last:
         last = next((r for r in projects.recent() if r.get("exists")), None)
@@ -253,7 +266,7 @@ def run(project: str | None = None, window: str = "auto", port: int = PORT, reop
         if window == "none":
             while True:
                 time.sleep(3600)
-        used = open_window(srv.url, window, srv)
+        used = open_window(srv.url, window, srv, core)
         if not used:
             log(f"No window could be opened. Open {srv.url} in a browser; Ctrl+C stops Cassetto.")
             while True:

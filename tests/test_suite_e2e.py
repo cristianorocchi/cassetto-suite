@@ -392,3 +392,38 @@ def test_add_scene_inside_lists_only_the_act_on_screen(server, browser, home):
     assert parents(act="2") == ["lamp_room", "lighthouse"]
     assert not errors, errors
 
+
+def test_export_and_import_a_project_from_the_menu(server, browser, home):
+    core, srv = server()
+    page, errors = open_shell(browser, srv.url)
+    page.wait_for_selector("#welcome:not([hidden])")
+    page.click("text=New project")
+    page.fill(".modal-box input >> nth=0", "Ferry")
+    page.click(".modal-box >> text=Create")
+    page.wait_for_selector("#welcome", state="hidden")
+    pl = frame(page, "plastico")
+    pl.wait_for_selector("#empty:not([hidden])")
+    add_scene(pl, "Dock")
+    pl.press("#f-name", "Escape")
+
+    # Export: the menu, a path, the file (the scene just added saved first)
+    out = home / "Ferry export.cassetto"
+    page.click("#btn-project")
+    page.click("#menu-project >> text=Export the project…")
+    page.fill("#f-export-path", str(out))
+    page.click("#f-export-go")
+    page.wait_for_selector("#toast >> text=Exported to")
+    assert out.is_file()
+
+    # Import it back from the welcome screen: a new folder next to the first, opened
+    page.click("#btn-project")
+    page.click("#menu-project >> text=Close the project")
+    page.wait_for_selector("#welcome:not([hidden])")
+    page.click("#welcome >> text=Import a project…")
+    page.fill("#f-import-path", str(out))
+    page.click("#f-import-go")
+    page.wait_for_selector("#welcome", state="hidden")
+    page.wait_for_function("document.querySelector('#proj-name').textContent === 'Ferry'")
+    assert core.project.path == (home / "projects" / "Ferry 2").resolve()
+    assert [s["id"] for s in world_on_disk(core.project.path)["scenes"]] == ["dock"]
+    assert not errors, errors

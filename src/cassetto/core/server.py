@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import threading
 import time
 import traceback
@@ -212,6 +213,7 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["state"]:
             return self._json({**core.state(), "app": {"version": __version__, "base": str(BASE),
                                                        "projects_dir": str(default_projects_dir()),
+                                                       "downloads_dir": str(_downloads_dir()),
                                                        "pages_seen": self.server.beats}})  # type: ignore[attr-defined]
         if parts == ["events"]:
             after = int(one("after", "0") or 0)
@@ -242,8 +244,26 @@ class Handler(BaseHTTPRequestHandler):
                     start["puzzles"] = {"charts_file": str(charts)}
             core.create_project(folder, name, start)
             return self._json(core.state())
+        if parts == ["quit"] and method == "POST":     # close the app as if its window was closed (the pages save first)
+            quit_ = getattr(core, "on_quit", None)
+            if quit_ is None:
+                return self._err(409, "This Cassetto has no window to close.")
+            threading.Thread(target=quit_, daemon=True).start()
+            return self._json({"ok": True})
         if parts == ["project", "close"] and method == "POST":
             core.close_project()
+            return self._json(core.state())
+        if parts == ["project", "export"] and method == "POST":
+            dest = str(self._jbody().get("path") or "").strip()
+            if not dest:
+                raise projects.ProjectError("Choose where to save the exported project.")
+            return self._json({"file": str(core.export_project(Path(dest)))})
+        if parts == ["project", "import"] and method == "POST":
+            b = self._jbody()
+            src = str(b.get("path") or "").strip()
+            if not src:
+                raise projects.ProjectError("Choose the .cassetto file to import.")
+            core.import_project(Path(src), Path(b.get("into") or default_projects_dir()))
             return self._json(core.state())
         if parts == ["project", "rename"] and method == "POST":
             core.rename_project(str(self._jbody().get("name", "")))
@@ -262,6 +282,14 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["plastico-worlds"]:
             return self._json({"worlds": _old_worlds(one("path"))})
         return self._err(404, "no such API")
+
+
+def _downloads_dir() -> Path:
+    """Where an exported project goes unless the user picks another place: Downloads, else home."""
+    for d in (os.environ.get("XDG_DOWNLOAD_DIR", ""), str(Path.home() / "Downloads"), str(Path.home() / "Scaricati")):
+        if d and Path(d).expanduser().is_dir():
+            return Path(d).expanduser()
+    return Path.home()
 
 
 def _safe_name(name: str) -> str:
@@ -284,13 +312,14 @@ def _list_dir(path: str) -> dict:
                          "godot": (d / "project.godot").is_file()})
     except PermissionError:
         pass
-    files = []
+    files, exported = [], []
     try:
         files = [{"name": f.name, "path": str(f)} for f in sorted(p.glob("*.json")) if f.is_file()][:200]
+        exported = [{"name": f.name, "path": str(f)} for f in sorted(p.glob("*" + projects.EXPORT_SUFFIX)) if f.is_file()][:200]
     except PermissionError:
         pass
     return {"path": str(p), "parent": str(p.parent) if p.parent != p else "", "home": str(Path.home()),
-            "dirs": dirs[:500], "json": files, "project": projects.is_project(p), "godot": (p / "project.godot").is_file()}
+            "dirs": dirs[:500], "json": files, "cassetto": exported, "project": projects.is_project(p), "godot": (p / "project.godot").is_file()}
 
 
 def _old_worlds(extra: str = "") -> list[dict]:

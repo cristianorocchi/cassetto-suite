@@ -401,12 +401,14 @@
   menu($('#btn-project'), $('#menu-project'), async (box) => {
     box.append(mi('New project…', 'A world and its puzzles, in a folder of their own', openNew));
     box.append(mi('Open a project…', 'A folder with a cassetto.json in it', openPicker));
+    box.append(mi('Import a project…', 'From a .cassetto file exported by Cassetto', openImportProject));
     let rec = [];
     try { rec = (await api('GET', '/api/core/recent')).recent.filter((r) => r.exists && (!project() || r.path !== project().path)).slice(0, 5); } catch (e) { /* offline */ }
     if (rec.length) { box.append(el('div', 'mi-head', 'Recent')); for (const r of rec) box.append(mi(r.name, home(r.path), () => openProject(r.path))); }
     if (project()) {
       box.append(el('div', 'mi-sep'));
       box.append(mi('Rename…', project().name, openRename));
+      box.append(mi('Export the project…', 'The whole project in one .cassetto file, to keep or send', openExport));
       box.append(mi('Import puzzle charts…', 'From the Puzzle Charts page’s “Copy as JSON”, or a file', openImport));
       box.append(mi('About this project', 'Its folder, format, modules and the link to Godot', openInfo));
       box.append(el('div', 'mi-sep'));
@@ -422,7 +424,7 @@
     box.append(el('div', 'mi-note', 'Pick a step to fix it in Puzzle Charts, or add the scene or person in Plastico.'));
   });
   $('#btn-godot').addEventListener('click', () => openInfo());
-  document.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => ({ new: openNew, open: openPicker })[b.dataset.act]()));
+  document.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => ({ new: openNew, open: openPicker, import: openImportProject })[b.dataset.act]()));
 
   /* ---------------------------------------------------------------- dialogs */
   function openModal(build) {
@@ -445,8 +447,19 @@
     const row = el('div', 'row'); const inp = el('input', 'mono'); inp.value = value || ''; inp.spellcheck = false;
     const holder = el('div');
     const choose = btn('Choose…', 'btn', async () => {
+      if (kind === 'save') {     // a file to write: the folder is chosen, the name stays
+        const v = inp.value.trim(), cut = v.lastIndexOf('/');
+        const dir = cut > 0 ? v.slice(0, cut) : '', fname = cut >= 0 ? v.slice(cut + 1) : v;
+        const set = (path) => { inp.value = path; if (onPick) onPick(path); inp.dispatchEvent(new Event('input')); };
+        if (native() && window.pywebview.api.pick_save) {
+          try { const p = await window.pywebview.api.pick_save(dir, fname); if (p) set(p); return; } catch (e) { /* fall back to ours */ }
+        }
+        if (holder.firstChild) { holder.textContent = ''; return; }
+        holder.append(picker(dir || '~', 'folder', (d) => { holder.textContent = ''; set(`${d.replace(/\/$/, '')}/${fname}`); }));
+        return;
+      }
       if (native()) {
-        try { const p = await (kind === 'file' ? window.pywebview.api.pick_file(inp.value) : window.pywebview.api.pick_folder(inp.value)); if (p) { inp.value = p; if (onPick) onPick(p); inp.dispatchEvent(new Event('input')); } return; }
+        try { const p = await (kind === 'file' || kind === 'cassetto' ? window.pywebview.api.pick_file(inp.value, kind === 'cassetto' ? 'cassetto' : 'json') : window.pywebview.api.pick_folder(inp.value)); if (p) { inp.value = p; if (onPick) onPick(p); inp.dispatchEvent(new Event('input')); } return; }
         catch (e) { /* fall back to ours */ }
       }
       if (holder.firstChild) { holder.textContent = ''; return; }
@@ -459,7 +472,8 @@
   function picker(start, kind, onPick) {
     const box = el('div', 'picker');
     const top = el('div', 'picker-path'); const where = el('input'); where.spellcheck = false;
-    const up = btn('Up', 'btn small'); const pickHere = btn(kind === 'file' ? 'Open' : 'Use this folder', 'btn small primary');
+    const up = btn('Up', 'btn small'); const files = kind === 'file' || kind === 'cassetto';
+    const pickHere = btn(files ? 'Open' : 'Use this folder', 'btn small primary');
     top.append(up, where, pickHere);
     const list = el('div', 'picker-list');
     box.append(top, list);
@@ -474,7 +488,7 @@
         if (parent !== path) return go(parent);
         list.textContent = ''; list.append(el('div', 'empty', e.message)); return;
       }
-      cur = d; where.value = d.path; up.disabled = !d.parent; pickHere.hidden = kind === 'file';
+      cur = d; where.value = d.path; up.disabled = !d.parent; pickHere.hidden = files;
       list.textContent = '';
       for (const x of d.dirs) {
         const b = el('button'); b.type = 'button'; b.append(icon(FOLDER), document.createTextNode(x.name));
@@ -483,8 +497,8 @@
         b.addEventListener('dblclick', () => { if (kind === 'project' && x.project) onPick(x.path); });
         list.append(b);
       }
-      if (kind === 'file') for (const x of d.json) { const b = el('button'); b.type = 'button'; b.append(icon(FILE), document.createTextNode(x.name)); b.addEventListener('click', () => onPick(x.path)); list.append(b); }
-      if (!list.firstChild) list.append(el('div', 'empty', kind === 'file' ? 'No folders or JSON files here.' : 'No folders here.'));
+      if (files) for (const x of (kind === 'cassetto' ? d.cassetto || [] : d.json)) { const b = el('button'); b.type = 'button'; b.append(icon(FILE), document.createTextNode(x.name)); b.addEventListener('click', () => onPick(x.path)); list.append(b); }
+      if (!list.firstChild) list.append(el('div', 'empty', kind === 'file' ? 'No folders or JSON files here.' : kind === 'cassetto' ? 'No folders or .cassetto files here.' : 'No folders here.'));
       if (kind === 'project' && d.project) { pickHere.textContent = 'Open this project'; pickHere.hidden = false; }
       else if (kind === 'project') pickHere.hidden = true;
     }
@@ -596,6 +610,55 @@
           show('puzzles', { chart: r.imported[0] });
         } catch (e) { toast(e.message, 'bad'); }
       });
+      foot(box, [], [btn('Cancel', 'btn', closeModal), go]);
+    });
+  }
+
+  // --- a project as one file: export the open one, import one into a new folder
+  function openExport() {
+    const p = project(); if (!p) return;
+    const fname = `${p.name.replace(/[^\p{L}\p{N} _.-]/gu, '-').trim() || 'Project'}.cassetto`;
+    const startDir = (S.state && S.state.app.downloads_dir) || '~';
+    openModal((box) => {
+      head(box, 'Export the project', 'The whole project (world, puzzle charts, sketches, history) in one .cassetto file. Import it on another computer, or keep it as a backup.');
+      const body = el('div', 'modal-body'); box.append(body);
+      const where = pathInput(`${startDir}/${fname}`, 'save');
+      where.input.id = 'f-export-path';
+      body.append(field('Save as', where, 'Choose… picks a folder; the file name stays as written.'));
+      const go = btn('Export', 'btn primary', async () => {
+        let dest = where.input.value.trim();
+        if (!dest) { toast('Choose where to save it first.', 'bad'); return; }
+        go.disabled = true;
+        try {
+          await flushAll();
+          const r = await api('POST', '/api/core/project/export', { path: dest });
+          closeModal(); toast(`Exported to ${home(r.file)}.`);
+        } catch (e) { toast(e.message, 'bad'); go.disabled = false; }
+      }); go.id = 'f-export-go';
+      where.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go.click(); });
+      foot(box, [], [btn('Cancel', 'btn', closeModal), go]);
+    });
+  }
+  function openImportProject() {
+    openModal((box) => {
+      head(box, 'Import a project', 'Choose a .cassetto file exported by Cassetto. It becomes a new project in a folder of its own; nothing already here is replaced.');
+      const body = el('div', 'modal-body'); box.append(body);
+      const file = pathInput('', 'cassetto');
+      file.input.id = 'f-import-path'; file.input.placeholder = '…/My game.cassetto';
+      body.append(field('File', file));
+      const into = pathInput((S.state && S.state.app.projects_dir) || '', 'folder');
+      into.input.id = 'f-import-into';
+      body.append(field('Put it in', into, 'A new folder named after the project goes in here.'));
+      const go = btn('Import', 'btn primary', async () => {
+        const src = file.input.value.trim();
+        if (!src) { toast('Choose the .cassetto file first.', 'bad'); return; }
+        go.disabled = true;
+        try {
+          await flushAll();
+          await withLoading(() => api('POST', '/api/core/project/import', { path: src, into: into.input.value.trim() }));
+          closeModal(); await loadState(); toast(`Imported ${project().name}.`);
+        } catch (e) { toast(e.message, 'bad'); go.disabled = false; }
+      }); go.id = 'f-import-go';
       foot(box, [], [btn('Cancel', 'btn', closeModal), go]);
     });
   }

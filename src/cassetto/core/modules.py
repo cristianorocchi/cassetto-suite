@@ -130,6 +130,7 @@ class Core:
         self._watch_stop = threading.Event()
         self._watcher: threading.Thread | None = None
         self.last_error = ""
+        self.on_quit = None      # set by the app: closes its window (POST /api/core/quit)
 
     # --- interfaces ---
     def interfaces(self) -> list[dict]:
@@ -234,6 +235,26 @@ class Core:
             self.project = None
             old.unlock()
             self.events.publish("project.closed", "core", path=str(old.path))
+
+    def export_project(self, dest: Path) -> Path:
+        """The open project as one .cassetto file (what the pages had waiting is saved by the shell first)."""
+        with self._lock:
+            if self.project is None:
+                raise NoProject()
+            out = projects.export_file(self.project, Path(dest))
+        self.events.publish("project.exported", "core", file=str(out))
+        return out
+
+    def import_project(self, src: Path, into: Path) -> projects.Project:
+        """Unpacks a .cassetto file into a new folder in `into` and opens it."""
+        with self._lock:
+            folder = projects.import_file(Path(src), Path(into))
+            try:
+                return self.open_project(folder)
+            except Exception:
+                shutil.rmtree(folder, ignore_errors=True)
+                projects.forget(str(folder))
+                raise
 
     def rename_project(self, name: str) -> None:
         if self.project is None:
