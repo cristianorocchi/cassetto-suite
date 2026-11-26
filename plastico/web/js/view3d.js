@@ -36,7 +36,7 @@ export class View3D {
     this.camera.position.set(0, 60, 42);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     Object.assign(this.controls, { enableDamping: true, dampingFactor: 0.14, screenSpacePanning: false, minDistance: 5, maxDistance: 600, maxPolarAngle: Math.PI * 0.48, zoomToCursor: true });
-    this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+    this.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
     this.controls.addEventListener('change', () => { this.dirty = true; });
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x8899aa, 2.2);
     this.sun = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -454,7 +454,7 @@ export class View3D {
     this.top = top;
     const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
     this.controls.enableRotate = !top;
-    this.controls.mouseButtons.LEFT = top ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+    this.controls.mouseButtons.MIDDLE = top ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
     this.controls.screenSpacePanning = top;
     const to = top ? new THREE.Spherical(s.radius, 0.0001, 0) : new THREE.Spherical(s.radius, 0.85, this.lastTheta ?? 0.35);
     if (top) this.lastTheta = s.theta;
