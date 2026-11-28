@@ -168,14 +168,14 @@ def test_the_suite_end_to_end(server, browser, home):
     cid = next(f.stem for f in (project / "puzzles" / "charts").glob("*.json"))
     assert {s["id"]: s for s in world_on_disk(project)["scenes"]}["lighthouse"]["charts"] == [cid]
 
-    # 4. put the same chart with the harbour too: one chart, two entries in the tree
+    # 4. put the same chart with the harbour too: one chart, under its act and under the two scenes in the tree
     page.click("#tree .tn.scene >> text=Harbour")
     page.wait_for_function("document.querySelector('.tab[aria-selected=true]').textContent.includes('Plastico')")
     pl.wait_for_function("document.querySelector('#f-id') && document.querySelector('#f-id').value === 'harbour'")
     pl.select_option("#f-add-chart", cid)
     pl.wait_for_selector("#scene-charts >> text=Light the lamp")
     wait_saved(page)
-    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn.chart .nm')].filter(n => n.textContent === 'Light the lamp').length === 2")
+    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn.chart .nm')].filter(n => n.textContent === 'Light the lamp').length === 3")
     assert len(charts_on_disk(project)) == 1
     shot(page, "03-one-chart-two-scenes")
     # a chart entry in the tree opens that chart
@@ -196,7 +196,8 @@ def test_the_suite_end_to_end(server, browser, home):
     wait_saved(page)
     by = {s["id"]: s for s in world_on_disk(project)["scenes"]}
     assert by["harbour"]["charts"] == [] and by["lighthouse"]["charts"] == [cid] and len(charts_on_disk(project)) == 1
-    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn.chart .nm')].filter(n => n.textContent === 'Light the lamp').length === 1")
+    # in the tree: under its act, and under the lighthouse
+    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn.chart .nm')].filter(n => n.textContent === 'Light the lamp').length === 2")
 
     # 6. resizing keeps the edges on the grid and refuses to cover a neighbour
     page.click("#tree .tn.scene >> text=Harbour")
@@ -230,7 +231,7 @@ def test_the_suite_end_to_end(server, browser, home):
     pz.locator("body").press("f")          # fit the chart to the screen
     pz.click(".node")
     pz.wait_for_selector("#f-scene")
-    pz.fill("#f-scene", "lighthouse")
+    pick(page, pz, "#f-scene", "lighthouse")
     wait_saved(page)
     page.click("#tree .tn.scene >> text=Lighthouse")
     pl.wait_for_function("document.querySelector('#f-id').value === 'lighthouse'")
@@ -247,17 +248,18 @@ def test_the_suite_end_to_end(server, browser, home):
     by = {s["id"]: s for s in world_on_disk(project)["scenes"]}
     assert by["lamp_room"]["parent"] == "old_lighthouse" and by["old_lighthouse"]["charts"] == [cid]
 
-    # 8. a step in a scene the world doesn't have: Puzzle Charts warns, the shell counts it
+    # 8. a scene the world doesn't have, typed in Where: it is added to the chart's act, so no link breaks
     page.click("#tree .tn.chart >> text=Light the lamp")
     pz.wait_for_selector(".node")
     pz.locator("body").press("f")
     pz.click(".node")
-    pz.fill("#f-scene", "cellar")
-    pz.wait_for_selector("text=No scene “cellar” in the world yet")
-    page.wait_for_selector("#btn-links:not([hidden])")
-    assert "1 broken link" in page.text_content("#btn-links")
-    pz.fill("#f-scene", "harbour")
-    page.wait_for_selector("#btn-links", state="hidden")
+    pick(page, pz, "#f-scene", "cellar", expect="Add the scene “Cellar” to act 1")
+    pz.wait_for_function("document.querySelector('#f-scene').textContent.trim() === 'Cellar'")
+    wait_saved(page)
+    cellar = next(s for s in world_on_disk(project)["scenes"] if s["id"] == "cellar")
+    assert cellar["act"] == "1" and cellar["status"] == "idea"
+    assert [n["scene"] for c in charts_on_disk(project) for n in c["nodes"] if n["scene"]] == ["cellar"]
+    assert page.is_hidden("#btn-links")
 
     # 9. keyboard: modules and the tree
     page.keyboard.press("Control+1")
@@ -426,4 +428,316 @@ def test_export_and_import_a_project_from_the_menu(server, browser, home):
     page.wait_for_function("document.querySelector('#proj-name').textContent === 'Ferry'")
     assert core.project.path == (home / "projects" / "Ferry 2").resolve()
     assert [s["id"] for s in world_on_disk(core.project.path)["scenes"]] == ["dock"]
+    assert not errors, errors
+
+
+def test_keyboard_shortcuts_are_set_in_the_settings(server, browser, home):
+    """Settings › Keyboard shortcuts: record new keys, settle a clash, use them in a module, keep them."""
+    core, srv = server()
+    core.create_project(home / "projects" / "Keys", "Keys", {})
+    page, errors = open_shell(browser, srv.url)
+    pl = frame(page, "plastico")
+    pl.wait_for_selector("#empty:not([hidden])")
+    keys = lambda where, aid: where.evaluate(f"CassettoKeys.keys({json.dumps(aid)})")  # noqa: E731
+    on_disk = lambda: json.loads((home / "config" / "keybindings.json").read_text())["bindings"]  # noqa: E731
+
+    # Ctrl+, opens the settings, from the module page too; the shortcuts are listed by where they work
+    pl.click("#stage", position={"x": 40, "y": 300})
+    pl.press("body", "Control+,")
+    page.wait_for_selector(".modal-box.settings .kb-row")
+    assert page.text_content(".set-tab[aria-current=true]").startswith("Keyboard shortcuts")
+    assert [h.strip() for h in page.eval_on_selector_all(".kb-sec-h h4", "hs => hs.map(h => h.textContent)")] == ["Everywhere", "Plastico", "Puzzle Charts"]
+    shot(page, "20-settings-keys")
+
+    # search by name, then by pressing the keys
+    page.fill(".kb-search input", "scene add")
+    assert page.eval_on_selector_all(".kb-row:not(.fixed) .kb-label", "ls => ls.map(l => l.textContent)") == ["Add a scene"]
+    page.click(".kb-find")
+    page.keyboard.press("Control+Z")
+    assert page.input_value(".kb-search input") == "Ctrl+Z"
+    assert page.eval_on_selector_all(".kb-row .kb-label", "ls => ls.map(l => l.textContent)") == ["Undo", "Undo"]
+
+    # give "Add a scene" the key G instead of N
+    page.fill(".kb-search input", "add a scene")
+    page.click('.kb-row[data-id="plastico.add"] .kc-main')
+    page.wait_for_selector(".keycap.rec")
+    page.keyboard.down("Shift"); page.wait_for_timeout(50)
+    assert "⇧" in page.text_content(".keycap.rec") or "Shift" in page.text_content(".keycap.rec")    # held keys show as they're pressed
+    page.keyboard.up("Shift")
+    page.keyboard.press("g")
+    page.wait_for_selector('.kb-row[data-id="plastico.add"].changed')
+    assert keys(page, "plastico.add") == ["G"] and keys(pl, "plastico.add") == ["G"]   # the module page has it at once
+    page.wait_for_timeout(500)
+    assert on_disk() == {"plastico.add": ["G"]}
+
+    # a key that works everywhere needs Ctrl or Alt; Ctrl+B is the tree's: take it, after asking
+    page.fill(".kb-search input", "next theme")
+    page.click('.kb-row[data-id="suite.theme"] .kc-empty')
+    page.keyboard.press("q")
+    assert "need Ctrl or Alt" in page.text_content('.kb-row[data-id="suite.theme"] .kb-note.bad')
+    page.keyboard.press("Control+b")
+    page.wait_for_selector('.kb-row[data-id="suite.theme"] .kb-note.warn')
+    assert "Show or hide the project tree" in page.text_content(".kb-note.warn")
+    page.click(".kb-note.warn >> text=Use it here")
+    page.wait_for_function("CassettoKeys.keys('suite.theme')[0] === 'Ctrl+B'")
+    assert keys(page, "suite.tree") == []
+    shot(page, "21-settings-moved")
+
+    # Esc closes; the new keys work in Plastico, the old ones don't
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#modal", state="hidden")
+    pl.click("#stage", position={"x": 40, "y": 300})
+    pl.press("body", "n")
+    pl.wait_for_timeout(200)
+    assert not pl.is_visible("#f-new-name")
+    pl.press("body", "g")
+    pl.wait_for_selector("#f-new-name")
+    pl.press("#f-new-name", "Escape")
+    assert pl.get_attribute("#btn-add", "title").endswith("(G)")
+    assert page.eval_on_selector_all("#tabs kbd", "ks => ks.map(k => k.textContent)") == ["Ctrl+1", "Ctrl+2"]
+    before = page.evaluate("CassettoTheme.get()")
+    pl.press("body", "Control+b")                      # now the theme's, not the tree's
+    page.wait_for_function(f"CassettoTheme.get() !== {json.dumps(before)}")
+    assert page.is_visible("#tree")
+
+    # kept: a new window reads them from the server
+    page.reload()
+    pl = frame(page, "plastico")
+    page.wait_for_function("CassettoKeys.keys('plastico.add')[0] === 'G'")
+    pl.wait_for_function("window.CassettoKeys && CassettoKeys.keys('plastico.add')[0] === 'G'")
+
+    # Reset all asks once more, then puts every default back
+    page.click("#btn-settings")
+    page.wait_for_selector(".modal-box.settings .kb-row")
+    assert page.text_content(".set-tab[data-pane=keys] .set-badge") == "3"
+    page.click("text=Reset all")
+    assert "Reset 3 changes?" in page.text_content(".set-foot")
+    page.click("text=Reset 3 changes?")
+    page.wait_for_function("CassettoKeys.changes() === 0")
+    assert keys(page, "suite.tree") == ["Ctrl+B"] and keys(pl, "plastico.add") == ["N"]
+    page.wait_for_timeout(500)
+    assert on_disk() == {}
+    page.click(".set-tab >> text=Appearance")
+    page.wait_for_selector(".theme-card")
+    shot(page, "22-settings-look")
+    assert not errors, errors
+
+
+def pick(page, fr, sel, text, expect=None):
+    """Choose in one of Puzzle Charts' pick lists (Where, Who) by typing, as a person would."""
+    fr.click(sel)
+    fr.wait_for_selector(".pick-pop .pick-q")
+    page.keyboard.type(text)
+    if expect:
+        fr.wait_for_selector(f".pick-pop .pick-opt.on:has-text('{expect}')")
+    page.keyboard.press("Enter")
+    fr.wait_for_selector(".pick-pop", state="detached")
+
+
+def test_plastico_and_puzzle_charts_as_one(server, browser, home):
+    """0.2: the act on screen, scene names, centred tabs, charts under the scenes their steps are in, one step
+    count, adding to the world what a step names, the locks a step opens."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_links import _setup
+    core, srv = server()
+    _, pub, alley, pinned, key = _setup(core, home)
+    page, errors = open_shell(browser, srv.url)
+    page.wait_for_selector("#tree:not([hidden]) .tn.chart")
+
+    # a test build says so, and the module tabs sit in the middle of the bar
+    assert page.is_visible("#brand-test") and page.title().endswith("(test)")
+    mid = page.evaluate("(() => { const r = document.querySelector('#tabs').getBoundingClientRect(); return r.left + r.width / 2 - innerWidth / 2; })()")
+    assert abs(mid) <= 2, mid
+
+    # the tree: "The key" under the pub (2 steps there) and the alley; the pinned chart under the alley; none loose
+    rows = tree_rows(page)
+    names = [r[2] for r in rows]
+    assert "Charts with no scene yet" not in names
+    i_pub, i_alley = names.index("Pub"), names.index("Alley")
+    assert rows[i_pub + 1][:1] == ["chart"] and rows[i_pub + 1][2] == "The key"
+    assert page.text_content(f"#tree-body .tn[data-key='chart:pub:{key}'] .ct") == "2"
+    under_alley = [r[2] for r in rows[i_alley + 1:i_alley + 3]]
+    assert under_alley == ["Planned for the alley", "The key"]
+
+    # Plastico, act 1 on screen: Add scene doesn't ask for the act again
+    pl = frame(page, "plastico")
+    pl.wait_for_selector("#loading", state="hidden")
+    page.click("#tree-body .tn.act")
+    pl.wait_for_function("[...document.querySelectorAll('.filter.on')].some(b => b.textContent.includes('Act 1'))")
+    pl.click("#btn-add")
+    pl.wait_for_selector("#f-new-name")
+    assert pl.is_hidden("#f-new-act")
+    assert "Straight in Act 1" in pl.text_content(".modal-box .choices")
+    pl.fill("#f-new-name", "Cellar")
+    pl.click("#f-new-go")
+    pl.wait_for_function("document.querySelector('#f-name') && document.querySelector('#f-name').value === 'Cellar'")
+    wait_saved(page)
+    assert next(s for s in world_on_disk(core.project.path)["scenes"] if s["name"] == "Cellar")["act"] == "1"
+    page.keyboard.press("Escape")
+
+    # scene names: never on top of each other; off leaves a dot per scene
+    pl.wait_for_timeout(600)
+    boxes = pl.evaluate("""[...document.querySelectorAll('.lab:not(.mini) .lab-card, .badge')]
+        .map(e => e.getBoundingClientRect()).filter(r => r.width).map(r => [r.left, r.top, r.right, r.bottom])""")
+    for a in range(len(boxes)):
+        for b in range(a + 1, len(boxes)):
+            p, q = boxes[a], boxes[b]
+            assert not (p[0] < q[2] - 1 and q[0] < p[2] - 1 and p[1] < q[3] - 1 and q[1] < p[3] - 1), (p, q)
+    pl.click("#v-names")
+    pl.wait_for_function("[...document.querySelectorAll('.lab:not(.sel)')].every(l => l.classList.contains('mini'))")
+    assert pl.get_attribute("#v-names", "aria-pressed") == "false"
+    pl.click("#v-names")
+    pl.wait_for_function("[...document.querySelectorAll('.lab')].some(l => !l.classList.contains('mini'))")
+
+    # the pub's panel: one list of its charts, each with the steps placed there
+    page.click("#tree-body .tn.scene >> text=Pub")
+    pl.wait_for_selector("#scene-charts-sec")
+    sec = pl.text_content("#scene-charts-sec")
+    assert "The key" in sec and "2 steps here, of 4" in sec and "Ask Elda" in sec
+
+    # broken links: add the stationmaster to the world in one click; the steps follow
+    page.wait_for_selector("#btn-links:not([hidden])")
+    assert page.text_content("#btn-links").startswith("3 broken links")
+    page.click("#btn-links")
+    page.click("#menu-links .link-fix:has-text('stationmaster') >> text=Add to the world’s people")
+    page.wait_for_function("document.querySelector('#btn-links').textContent.startsWith('1 broken link')")
+    assert {"id": "stationmaster", "name": "Stationmaster"} in world_on_disk(core.project.path)["people"]
+    # ... and goes where the steps have them, so Plastico shows them there
+    alley_now = next(s for s in world_on_disk(core.project.path)["scenes"] if s["id"] == "alley")
+    assert all("stationmaster" in ids for ids in alley_now["people"].values()) and alley_now["people"]
+
+    # Puzzle Charts: Who shows the name, and the key's step says which lock it opens
+    pl.click("#scene-charts-sec li.link >> text=Ask Elda")
+    pz = frame(page, "puzzles")
+    pz.wait_for_function("document.querySelector('#f-who') && document.querySelector('#f-who').textContent.trim() === 'Elda'")
+    # Where offers the chart's act first, its scenes by name
+    pz.click("#f-scene")
+    assert pz.text_content(".pick-pop .pick-head").startswith("Act 1")
+    opts = pz.locator(".pick-pop .pick-opt .po-label").all_inner_texts()
+    assert opts[:4] == ["Any scene", "Alley", "Cellar", "Pub"], opts
+    page.keyboard.press("Escape")
+    pz.wait_for_selector(".pick-pop", state="detached")
+    # the world doesn't put Elda in the Pub: the step says so, and puts her there in one click
+    assert "doesn’t put Elda in Pub at any time" in pz.text_content("#f-not-there")
+    pz.click("#f-put-there")
+    pz.wait_for_selector("#f-not-there", state="detached")
+    pub_now = next(s for s in world_on_disk(core.project.path)["scenes"] if s["id"] == "pub")
+    assert pub_now["people"] == {"day": ["elda"], "night": ["elda"]}
+    # ... and Who now lists her first, as someone in the Pub
+    pz.click("#f-who")
+    heads = pz.eval_on_selector_all(".pick-pop .pick-head", "hs => hs.map(h => h.textContent)")
+    assert heads[0].startswith("In Pub"), heads
+    page.keyboard.press("Escape")
+    page.click("#tree-body .tn.scene >> text=Pub")
+    pl.click("#scene-charts-sec li.link >> text=The key")
+    pz.wait_for_selector("#f-opens")
+    assert "Pub → Alley" in pz.text_content("#f-opens")
+    # the station step: the scene is missing, and can be added from the step
+    pz.evaluate("(() => { const n = [...document.querySelectorAll('#nodes > div')].find(e => e.textContent.includes('Ask the stationmaster')); n.dispatchEvent(new MouseEvent('pointerdown', {bubbles: true, button: 0})); n.dispatchEvent(new MouseEvent('pointerup', {bubbles: true, button: 0})); n.click(); })()")
+    pz.wait_for_selector("#f-add-scene")
+    pz.click("#f-add-scene")
+    page.wait_for_function("document.querySelector('#btn-links').hidden")
+    assert any(s["id"] == "station" for s in world_on_disk(core.project.path)["scenes"])
+    # the new Station doesn't have the stationmaster: the step says where the world has him, and moves there
+    pz.wait_for_selector("#f-not-there")
+    assert "The world puts Stationmaster in Alley." in pz.text_content("#f-not-there")
+    assert pz.text_content("#f-move-there") == "Move the step to Alley"
+    pz.click("#f-move-there")
+    pz.wait_for_selector("#f-not-there", state="detached")
+    assert pz.text_content("#f-scene").strip() == "Alley"
+    assert not errors, errors
+
+
+def test_the_act_on_screen_is_the_same_in_every_module(server, browser, home):
+    """An act picked in Plastico opens that act's chart in Puzzle Charts: a fresh one when it has none, saved
+    with its first change. Opening a chart moves Plastico to its act. Both lists keep the acts apart."""
+    core, srv = server()
+    core.create_project(home / "acts", "Acts")
+    from plastico import store
+    root = core.project.path / "plastico"
+    w = store.load("world", root)
+    w["acts"] = [{"id": "1", "name": "Arrival", "start": ""}, {"id": "2", "name": "Keep the change", "start": ""}]
+    w["scenes"] = [{"id": "pub", "name": "Pub", "kind": "inside", "act": "1", "x": 3, "z": 2}]
+    store.save(w, root=root)
+    core.call("puzzles.create_chart", "The key", 1)
+    on_disk = lambda: sorted((c["name"], c["act"]) for c in charts_on_disk(core.project.path))  # noqa: E731
+    page, errors = open_shell(browser, srv.url)
+    pl = frame(page, "plastico")
+    pl.wait_for_selector("#acts .filter >> text=Act 2")
+    # the tree: the chart under its act, before the act's scenes
+    page.wait_for_selector("#tree:not([hidden]) .tn.chart")
+    names = [r[2] for r in tree_rows(page)]
+    assert names[:3] == ["Act 1 · Arrival", "The key", "Pub"], names
+
+    pl.click("#acts .filter >> text=Act 2")
+    page.wait_for_selector("#tree-body .tn.act.cur >> text=Act 2")
+    page.click("#tabs >> text=Puzzle Charts")
+    pz = frame(page, "puzzles")
+    pz.wait_for_function("document.querySelector('#f-chart-name') && document.querySelector('#f-chart-name').value === 'Act 2'")
+    assert pz.eval_on_selector("#f-chart-act", "s => s.value") == "2"
+    assert pz.eval_on_selector_all("#chart-list .act-num", "hs => hs.map(h => h.textContent)") == ["Act 1", "Act 2"]
+    assert "saved with your first change" in pz.text_content("#chart-list .chart-item.on")
+    assert on_disk() == [("The key", 1)]           # only looked at: nothing saved
+    pz.fill("#f-chart-name", "The bank job")
+    for _ in range(60):
+        if on_disk() == [("The bank job", 2), ("The key", 1)]:
+            break
+        page.wait_for_timeout(100)
+    assert on_disk() == [("The bank job", 2), ("The key", 1)]
+    page.wait_for_function("[...document.querySelectorAll('#tree-body .tn')].some(r => r.textContent.startsWith('The bank job'))")
+    names = [r[2] for r in tree_rows(page)]
+    assert names[names.index("Act 2 · Keep the change") + 1] == "The bank job", names
+
+    # a chart of act 1 opened here: Plastico shows act 1 too
+    pz.click("#chart-list .chart-item >> text=The key")
+    page.wait_for_selector("#tree-body .tn.act.cur >> text=Act 1")
+    assert "Act 1" in pl.text_content("#acts .filter.on")
+    # every act in Plastico stays every act when a chart opens
+    page.click("#tabs >> text=Plastico")
+    pl.click("#acts .filter >> text=Every act")
+    page.click("#tabs >> text=Puzzle Charts")
+    pz.click("#chart-list .chart-item >> text=The bank job")
+    pz.wait_for_function("document.querySelector('#f-chart-name').value === 'The bank job'")
+    assert "Every act" in pl.text_content("#acts .filter.on") and not page.query_selector("#tree-body .tn.act.cur")
+    assert not errors, errors
+
+
+def test_seen_from_above_every_picture_lies_on_its_block(server, browser, home):
+    """Pictures mode: an indoor room's picture stands like a postcard; in Map view, or with the camera turned
+    to look down, it lies on its room like an outdoor scene's on its plate, and stands again when tilted."""
+    from PIL import Image
+    from plastico import store
+    core, srv = server()
+    core.create_project(home / "pics", "Pics")
+    root = core.project.path / "plastico"
+    w = store.load("world", root)
+    w["scenes"] = [{"id": "square", "name": "Square", "kind": "outside", "act": "1", "x": 6, "z": 3.5},
+                   {"id": "pub", "name": "Pub", "kind": "inside", "act": "1", "x": 22, "z": 2}]
+    store.save(w, root=root)
+    files = store.files_dir("world", root)
+    files.mkdir(parents=True, exist_ok=True)
+    for sid, colour in (("square", (90, 120, 160)), ("pub", (160, 110, 70))):   # a sketch for each
+        Image.new("RGB", (320, 180), colour).save(files / f"{sid}.jpg", "JPEG")
+    page, errors = open_shell(browser, srv.url)
+    pl = frame(page, "plastico")
+    pl.wait_for_selector("#loading", state="hidden")
+    pl.click("text=Pictures")
+    how = """id => { const o = window.plastico.view.objs.get(id); return o ? (o.flat ? 'flat' : o.card ? 'card' : 'none') : 'gone'; }"""
+    pl.wait_for_function(f"({how})('pub') === 'card'")
+    assert pl.evaluate(f"({how})('square')") == "flat"
+    pl.click("#z-top")                                        # the map: straight down
+    pl.wait_for_function(f"({how})('pub') === 'flat'")
+    pl.click("#z-top")                                        # tilted again: the postcard is back
+    pl.wait_for_function(f"({how})('pub') === 'card'")
+    pl.wait_for_function("!window.plastico.view.anim")      # the camera has settled
+    turn = "phi => { const v = window.plastico.view; v.restoreCamera({ ...v.cameraState(), phi }); }"
+    pl.evaluate(f"({turn})(0.2)")                              # turned by hand to look down
+    pl.wait_for_function(f"({how})('pub') === 'flat'")
+    pl.evaluate(f"({turn})(0.37)")                             # a little less steep: no flicker, still flat
+    pl.wait_for_timeout(300)
+    assert pl.evaluate(f"({how})('pub')") == "flat"
+    pl.evaluate(f"({turn})(0.8)")
+    pl.wait_for_function(f"({how})('pub') === 'card'")
+    assert pl.evaluate(f"({how})('square')") == "flat"
     assert not errors, errors

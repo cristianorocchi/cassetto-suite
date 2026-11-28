@@ -15,7 +15,11 @@
  *   cassetto.navigate(module, target) show another module, at `target` (a scene, a chart step...)
  *   cassetto.status(state, text)      saved | busy | dirty | err, for the shell's save indicator
  *   cassetto.selected(target)         what the page shows now ({scene} or {chart}), for the project tree
+ *   cassetto.act()                    the act on screen in every module: "1", "2"... or "all"
+ *   cassetto.setAct(act, follow)      this page shows another act: the others get an "act" event and
+ *                                     follow it. `follow`: a chart opened, so "all" stays "all"
  *   cassetto.error(message)           a problem the person should see
+ *   cassetto.settings(pane)           open the suite's settings ("keys" or "look"); inside the shell only
  */
 (function () {
   'use strict';
@@ -59,6 +63,7 @@
       register(h) { hooks = h || {}; const t = new URLSearchParams(location.hash.slice(1)).get('target'); if (t && hooks.navigate) { try { hooks.navigate(JSON.parse(t)); } catch (e) { /* bad link */ } } },
       navigate(mod, target) { location.href = `/#module=${encodeURIComponent(mod)}${target ? '&target=' + encodeURIComponent(JSON.stringify(target)) : ''}`; },
       status() {}, selected() {}, error(msg) { console.warn(msg); },
+      act: () => 'all', setAct() {},     // on its own there is no other module to keep in step
     };
   }
 })();

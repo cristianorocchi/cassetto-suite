@@ -386,3 +386,15 @@ h2,h3{margin:0;text-wrap:balance}
 .stack{display:flex;flex-direction:column;gap:12px}
 /* the labels' own stacking: a selected label stays above the other labels, never above dialogs and menus */
 .labels{isolation:isolate}
+
+/* a scene's puzzle charts: each chart with the steps placed in this scene under it */
+.links li.chart-here{flex-direction:column;align-items:stretch;gap:3px}
+.chart-head{display:flex;align-items:center;gap:4px}
+.links.charts .go{flex-wrap:wrap;row-gap:1px}
+.links.charts .go .s{flex-basis:100%;padding-left:21px;white-space:normal}
+.chart-here > .steps{margin:2px 0 6px 13px;padding-left:9px;border-left:1px solid var(--line)}
+.lab.mini.tucked{visibility:hidden}
+.issues li .fixes{display:flex;flex-wrap:wrap;gap:6px;margin:5px 0 2px 26px}
+.issues li .fix{height:26px}
+.inline-link{border:0;background:none;padding:0;font:inherit;color:var(--ink);text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px;cursor:pointer}
+.inline-link:hover{text-decoration-color:currentColor}

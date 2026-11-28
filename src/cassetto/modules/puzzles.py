@@ -40,7 +40,7 @@ PAGE_ASSETS = [
     ('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n', ''),
 ]
 FONTS_RE = re.compile(r'<link rel="stylesheet" href="https://fonts\.googleapis\.com/[^"]*">')
-BRIDGE = '<script src="/shared/theme.js"></script>\n<script src="/shared/cassetto-bridge.js"></script>\n<script src="cassetto-db.js"></script>\n'
+BRIDGE = '<script src="/shared/theme.js"></script>\n<script src="/shared/keys.js"></script>\n<script src="/shared/cassetto-bridge.js"></script>\n<script src="cassetto-db.js"></script>\n'
 
 
 def new_id() -> str:
@@ -85,6 +85,12 @@ def chart_from(d: dict) -> dict | None:
             out["_id"] = d["id"]
         return out
     return None
+
+
+def step_count(nodes) -> int:
+    """The steps of a chart as every view counts them: its nodes but the end goals and the scene setups
+    (the same rule as analyze() on the Puzzle Charts page)."""
+    return sum(1 for n in nodes or [] if isinstance(n, dict) and n.get("kind") not in ("goal", "setup"))
 
 
 def charts_in(data) -> list[dict]:
@@ -197,15 +203,19 @@ class PuzzlesModule(Module):
             nodes = [{k: (n.get(k) or "") for k in NODE_KEYS} for n in d.get("nodes", []) if isinstance(n, dict)]
             edges = [{"from": e.get("from"), "to": e.get("to")} for e in d.get("edges", []) if isinstance(e, dict)]
             out.append({"id": cid, "name": d.get("name") or "Untitled chart", "act": d.get("act", 1), "nodes": nodes,
-                        "edges": edges, "updated": d.get("updatedAt", 0)})
+                        "edges": edges, "updated": d.get("updatedAt", 0), "steps": step_count(nodes)})
         out.sort(key=lambda c: (c["act"] if isinstance(c["act"], int) else 99, c["name"].lower()))
         return {"synced": int(time.time() * 1000), "source": "cassetto", "live": True, "charts": out}
 
-    def create_chart(self, name: str = "") -> str:
-        """A new chart with just its end goal, as the page's New chart makes it. Returns its id."""
+    def create_chart(self, name: str = "", act=1) -> str:
+        """A new chart with just its end goal, as the page's New chart makes it, in that act. Returns its id."""
         cid = new_id()
         now = int(time.time() * 1000)
-        self.write(cid, {"name": (str(name).strip() or "Untitled chart")[:200], "act": 1, "notes": "", "auto": True,
+        try:
+            act = max(1, min(99, int(act)))
+        except (TypeError, ValueError):
+            act = 1
+        self.write(cid, {"name": (str(name).strip() or "Untitled chart")[:200], "act": act, "notes": "", "auto": True,
                          "nodes": [{"id": "n" + secrets.token_hex(4), "kind": "goal", "title": "The end goal", "scene": "", "who": "",
                                     "when": "", "gid": "", "status": "idea", "notes": "", "x": 0, "y": 0}],
                          "edges": [], "createdAt": now, "updatedAt": now, "rev": "create:" + secrets.token_hex(3)})
@@ -213,14 +223,18 @@ class PuzzlesModule(Module):
         return cid
 
     def rename_scene(self, old: str, new: str) -> dict:
+        return self._relink("scene", old, new, "rename_scene")
+
+    def _relink(self, field: str, old: str, new: str, reason: str) -> dict:
+        """Every step whose `field` (scene or who) is `old` gets `new`."""
         if not old or not new or old == new:
             return {"steps": 0, "charts": 0}
         steps = charts = 0
         for cid, d in self.docs():
             n = 0
             for node in d.get("nodes", []):
-                if isinstance(node, dict) and node.get("scene") == old:
-                    node["scene"] = new
+                if isinstance(node, dict) and node.get(field) == old:
+                    node[field] = new
                     n += 1
             if n:
                 d["updatedAt"] = int(time.time() * 1000)
@@ -229,8 +243,44 @@ class PuzzlesModule(Module):
                 steps += n
                 charts += 1
         if charts:
-            self.ctx.core.settle(self.id, reason="rename_scene", old=old, new=new)
+            self.ctx.core.settle(self.id, reason=reason, old=old, new=new)
         return {"steps": steps, "charts": charts}
+
+    def add_to_world(self, kind: str, value: str, name: str = "", act: str = "") -> dict:
+        """A step names a person or a scene the world doesn't have: add it to the world (through Plastico) and
+        point every step that names it at the new one. kind is "person" or "scene"; `value` is what the
+        steps say now; `name` is the name to give it (default: `value` without a trailing "(new)")."""
+        if kind not in ("person", "scene") or not isinstance(value, str) or not value.strip():
+            raise ValueError("Say what to add: a person or a scene, and the name the steps use.")
+        nice = " ".join((name or re.sub(r"\s*\((new|nuovo|nuova)\)\s*$", "", value, flags=re.I)).split()) or value.strip()
+        nice = nice[:1].upper() + nice[1:]
+        if kind == "person":
+            new = self.ctx.require("world.add_person", nice)
+        else:
+            if not act:
+                act = next((str(d.get("act")) for _, d in self.docs() for n in d.get("nodes", [])
+                            if isinstance(n, dict) and n.get("scene") == value), "")
+            new = self.ctx.require("world.add_scene", nice, act)
+        field = "who" if kind == "person" else "scene"
+        if new == value:      # the steps already name it by the id it got: nothing to rewrite
+            hits = [sum(1 for n in d.get("nodes", []) if isinstance(n, dict) and n.get(field) == value) for _, d in self.docs()]
+            moved = {"steps": sum(hits), "charts": sum(1 for k in hits if k)}
+        else:
+            moved = self._relink(field, value, new, "add_to_world")
+        placed = []
+        if kind == "person":   # where the steps have them: that scene, at the step's time of day (any time: every time)
+            cat = self.ctx.optional("world.catalog") or {}
+            scenes, phases = {s for s, _ in cat.get("scenes", [])}, list(cat.get("phases") or [])
+            where: dict[str, set] = {}
+            for _, d in self.docs():
+                for n in d.get("nodes", []):
+                    if isinstance(n, dict) and n.get("who") == new and n.get("scene") in scenes and n.get("kind") not in ("goal", "setup"):
+                        where.setdefault(n["scene"], set()).update([n["when"]] if n.get("when") in phases else phases)
+            for sid, phs in where.items():
+                if phs:
+                    self.ctx.require("world.place_person", new, sid, [ph for ph in phases if ph in phs])
+                    placed.append({"scene": sid, "phases": [ph for ph in phases if ph in phs]})
+        return {"id": new, "name": nice, **moved, "placed": placed}
 
     def references(self) -> dict:
         cat = self.ctx.optional("world.catalog")
@@ -260,9 +310,12 @@ class PuzzlesModule(Module):
             Interface("puzzles.charts", self.charts,
                       "() -> {charts: [{id, name, act, nodes: [{id, kind, title, scene, who, when, gid, status}], edges: [{from, to}]}]}"),
             Interface("puzzles.create_chart", self.create_chart,
-                      "(name) -> id: a new chart with just its end goal."),
+                      "(name, act=1) -> id: a new chart with just its end goal, in that act."),
             Interface("puzzles.rename_scene", self.rename_scene,
                       "(old, new) -> {steps, charts}: the steps placed in scene `old` move to `new`."),
+            Interface("puzzles.add_to_world", self.add_to_world,
+                      "(kind, value, name='', act='') -> {id, name, steps, charts}: adds the person or scene that steps name "
+                      "but the world lacks (through Plastico), and points those steps at it."),
             Interface("puzzles.references", self.references,
                       "() -> {missing_scenes, missing_people, missing_charts}: steps whose scene or person the world lacks, "
                       "and charts put with a scene that the project no longer has."),
@@ -333,6 +386,6 @@ class PuzzlesModule(Module):
     def summary(self) -> dict:
         docs = self.docs()
         refs = self.references()
-        return {"charts": len(docs), "steps": sum(len(d.get("nodes", [])) for _, d in docs),
+        return {"charts": len(docs), "steps": sum(step_count(d.get("nodes")) for _, d in docs),
                 "missing": len(refs["missing_scenes"]) + len(refs["missing_people"]) + len(refs["missing_charts"]),
                 "problems": self.problems()}

@@ -37,7 +37,7 @@ function stepGlyph(kind) { const s = document.createElementNS('http://www.w3.org
 /* ------------------------------------------------------------------ state */
 const S = {
   worlds: [], wid: null, bundle: null, world: null, M: null, rev: 0,
-  sel: null, ui: { mode: 'skeleton', phase: '', act: 'all', area: '', top: false, people: true, steps: true },
+  sel: null, ui: { mode: 'skeleton', phase: '', act: 'all', area: '', top: false, people: true, steps: true, names: true },
   route: null, play: null,
   undo: [], redo: [], lastEdit: null,
   saveTimer: 0, saving: false, saveAgain: false, dirty: false,
@@ -130,7 +130,7 @@ function renderLabel(s, elx) {
   else if (S.ui.phase && !model.sceneOpenAt(s, S.ui.phase)) card.append(el('span', 'lab-chip closed', `Closed at ${S.ui.phase}`));
   card.append(el('div', 'lab-name', s.name || s.id));
   const meta = el('div', 'lab-meta');
-  const steps = S.M.steps.get(s.id) || [];
+  const steps = (S.M.steps.get(s.id) || []).filter(({ node }) => node.kind !== 'goal' && node.kind !== 'setup');
   if (S.ui.steps && steps.length) { const sp = el('span'); sp.append(svgIcon(ICON.step), document.createTextNode(`${steps.length} step${steps.length > 1 ? 's' : ''}`)); meta.append(sp); }
   if (s.floor) meta.append(el('span', '', s.floor > 0 ? `floor ${s.floor}` : `${-s.floor} below`));
   if (s.parent) { const P = S.M.scenes.get(s.parent); if (P) meta.append(el('span', 'in', `in ${P.name || P.id}`)); }
@@ -301,7 +301,7 @@ function openAddScene(at = {}) {
   const w = S.world;
   const selScene = S.sel && S.sel.type === 'scene' ? w.scenes.find((q) => q.id === S.sel.id) : null;
   openModal((box) => {
-    modalHead(box, 'Add a scene', 'Choose where it goes: in an act, or inside a scene that is already there.');
+    modalHead(box, 'Add a scene', S.ui.act !== 'all' && w.acts.some((a) => a.id === S.ui.act) ? `In ${containerText(S.ui.act, '')}: straight in the act, or inside one of its scenes.` : 'Choose where it goes: in an act, or inside a scene that is already there.');
     const body = el('div', 'modal-body'); box.append(body);
     const name = el('input'); name.id = 'f-new-name'; name.placeholder = 'New place'; body.append(field('Name', name));
     const where = el('div', 'choices');
@@ -314,9 +314,12 @@ function openAddScene(at = {}) {
     // a scene inside another is in its outermost parent's act
     const actOf = (q) => (model.ancestorsOf(w, q.id).pop() || q).act;
     // the act you are in: the one on screen, else the selected scene's, else the first
-    actSel.value = S.ui.act !== 'all' ? S.ui.act : selScene ? actOf(selScene) : w.acts[0].id;
+    const shown = S.ui.act !== 'all' && w.acts.some((a) => a.id === S.ui.act) ? S.ui.act : '';
+    actSel.value = shown || (selScene ? actOf(selScene) : w.acts[0].id);
     const parSel = el('select'); parSel.id = 'f-new-parent';
-    const rAct = choice('act', 'In an act', actSel);
+    // with one act on screen the scene goes in that act: no need to ask again
+    const rAct = shown ? choice('act', `Straight in ${containerText(shown, '')}`, actSel) : choice('act', 'In an act', actSel);
+    if (shown) actSel.hidden = true;
     const rPar = choice('parent', 'Inside a scene', parSel);
     // "Inside a scene" lists only the scenes of that act, and follows the act chosen above
     const fillParents = () => {
@@ -572,14 +575,14 @@ function renderSide() {
   if (!S.world) return;
   const all = el('button', 'filter' + (S.ui.act === 'all' ? ' on' : '')); all.type = 'button';
   all.append(el('span'), el('span', 'nm', 'Every act'), el('span', 'n', String(S.world.scenes.length)));
-  all.addEventListener('click', () => { S.ui.act = 'all'; renderSide(); renderView(); view.fit(); });
+  all.addEventListener('click', () => { showAct('all'); renderSide(); renderView(); view.fit(); if (!S.sel) renderInspector(); });
   acts.append(all);
   for (const a of S.world.acts) {
     const n = S.world.scenes.filter((s) => s.act === a.id).length;
     const b = el('button', 'filter' + (S.ui.act === a.id ? ' on' : '')); b.type = 'button';
     const nmx = el('span', 'nm'); nmx.append(document.createTextNode(`Act ${a.id}`)); if (a.name) nmx.append(el('span', 'sub', a.name));
     b.append(el('span'), nmx, el('span', 'n', String(n)));
-    b.addEventListener('click', () => { S.ui.act = a.id; renderSide(); renderView(); view.fit(); });
+    b.addEventListener('click', () => { showAct(a.id); renderSide(); renderView(); view.fit(); if (!S.sel) renderInspector(); });
     acts.append(b);
   }
   const ar = $('#areas'); ar.textContent = '';
@@ -610,7 +613,8 @@ function renderPhases() {
   p.hidden = !S.M || !S.M.phases.length;
   if (!S.M) return;
   S.M.phases.forEach((ph, i) => {
-    const b = btn(cap(ph), '', () => setPhase(ph), `Show the world at ${ph} (${i + 1})`);
+    const k = window.CassettoKeys ? window.CassettoKeys.label(`plastico.phase${i + 1}`) : String(i + 1);
+    const b = btn(cap(ph), '', () => setPhase(ph), `Show the world at ${ph}${k ? ` (${k})` : ''}`);
     b.setAttribute('aria-pressed', S.ui.phase === ph);
     p.append(b);
   });
@@ -718,28 +722,84 @@ function worldInspector(box) {
       if (it.links.length) { const L = M.links.get(it.links[0]); if (L) { select({ type: 'pair', key: model.pairKey(L.from, L.to) }); view.focus(L.from); return; } }
       if (it.scenes.length) { select({ type: 'scene', id: it.scenes[0] }); view.fit(it.scenes); }
     });
-    li.append(bt); ul.append(li);
+    li.append(bt);
+    if (it.fix && it.fix.place) {      // "Not there then": put them there, at that time, or go to the step
+      const { who, scene, when } = it.fix.place;
+      const nmw = firstName((M.people.get(who) || {}).name) || who, sc = M.scenes.get(scene);
+      const fixes = el('div', 'fixes');
+      const f = btn(`Put ${nmw} in ${sc ? sc.name : scene}${when ? ` (${when})` : ''}`, 'btn small fix', () => edit((w) => {
+        const s = w.scenes.find((q) => q.id === scene); if (!s) return;
+        for (const ph of when ? [when] : w.phases || []) {
+          s.people = s.people || {}; s.people[ph] = s.people[ph] || [];
+          if (s.away && s.away[ph]) s.away[ph] = s.away[ph].filter((q) => q !== who);
+          if (!s.people[ph].includes(who)) s.people[ph].push(who);
+        }
+      }), when ? `Adds ${nmw} to People here in ${sc ? sc.name : scene} at ${when}` : `Adds ${nmw} to People here in ${sc ? sc.name : scene} at every time of day`);
+      fixes.append(f);
+      const refs = it.fix.steps || [];
+      if (CS && refs.length) {
+        fixes.append(btn(refs.length > 1 ? `Open the first of the ${refs.length} steps` : 'Open the step', 'btn small fix',
+          () => CS.navigate('puzzles', { chart: refs[0].chart, step: refs[0].step }), 'Opens it in Puzzle Charts, where it can move to another scene'));
+      }
+      li.append(fixes);
+    }
+    ul.append(li);
   }
   sec.append(ul); box.append(sec);
   const ch = section('Puzzle charts');
   if (CS) {
     const c = (b.charts && b.charts.charts) || [];
-    const n = c.reduce((k, x) => k + x.nodes.length, 0);
-    const placed = c.reduce((k, x) => k + x.nodes.filter((q) => q.scene).length, 0);
-    ch.append(el('p', 'note', c.length ? `${c.length} chart${c.length === 1 ? '' : 's'}, ${n} steps (${placed} placed in a scene), live from Puzzle Charts in this project. Select a scene to see its steps; locks find their keys in them.`
+    const n = c.reduce((k, x) => k + chartSteps(x), 0);
+    const placed = c.reduce((k, x) => k + x.nodes.filter((q) => q.scene && (q.kind !== 'goal' && q.kind !== 'setup')).length, 0);
+    if (S.ui.act === 'all' || !c.length) ch.append(el('p', 'note', c.length ? `${c.length} chart${c.length === 1 ? '' : 's'}, ${n} steps (${placed} placed in a scene), live from Puzzle Charts in this project. Select a scene to see its steps; locks find their keys in them.`
       : 'No puzzle charts in this project yet. Steps you place in a scene show up on its panel, and locks find their keys in them.'));
+    // the act on screen (or every act): its charts, and its scenes no puzzle step happens in yet
+    const act = S.ui.act !== 'all' ? S.ui.act : '';
+    const mine = c.filter((x) => !act || String(x.act) === act);
+    const actScenes = [...M.scenes.values()].filter((s) => !s.delete && (!act || s.act === act));
+    if (act) ch.querySelector('h3').firstChild.textContent = `Puzzle charts of act ${act}`;
+    const ul = el('ul', 'links charts'); ul.id = 'act-charts';
+    for (const x of mine) {
+      const placed = new Set(x.nodes.filter((q) => q.scene && q.kind !== 'goal' && q.kind !== 'setup' && M.scenes.has(q.scene)).map((q) => q.scene));
+      const li = el('li', 'chart-here'); const head = el('div', 'chart-head');
+      const go = el('button', 'go'); go.type = 'button';
+      go.append(stepGlyph('goal'), el('span', 't', x.name), el('span', 's', `${act ? '' : `act ${x.act} · `}${plural(chartSteps(x), 'step')} · in ${plural(placed.size, 'scene')}${act ? ` of ${actScenes.length}` : ''}`));
+      go.title = `Open “${x.name}” in Puzzle Charts`;
+      go.addEventListener('click', () => CS.navigate('puzzles', { chart: x.id }));
+      head.append(go); li.append(head); ul.append(li);
+    }
+    if (mine.length) ch.append(ul);
+    else if (act && c.length) ch.append(el('p', 'none', `No chart is in act ${act} yet. A chart’s act is set on its panel in Puzzle Charts.`));
+    const used = new Set(c.flatMap((x) => x.nodes.filter((q) => q.scene && q.kind !== 'goal' && q.kind !== 'setup').map((q) => q.scene)));
+    const idle = actScenes.filter((s) => !used.has(s.id)).sort((p, q) => p.name.localeCompare(q.name));
+    if (idle.length && c.length) {
+      const p = el('p', 'note'); p.id = 'act-idle';
+      p.append(document.createTextNode(`No puzzle step yet in ${idle.length} of the ${actScenes.length} scenes${act ? ` of act ${act}` : ''}: `));
+      idle.slice(0, 12).forEach((s, i) => { if (i) p.append(document.createTextNode(', ')); const a = el('button', 'inline-link', s.name); a.type = 'button'; a.addEventListener('click', () => { select({ type: 'scene', id: s.id }); view.focus(s.id); }); p.append(a); });
+      if (idle.length > 12) p.append(document.createTextNode('…'));
+      ch.append(p);
+    }
     ch.append(btn('Open Puzzle Charts', 'btn small', () => CS.navigate('puzzles')));
   } else if (b.charts && b.charts.charts) {
     const c = b.charts;
-    const n = c.charts.reduce((k, x) => k + x.nodes.length, 0);
-    const placed = c.charts.reduce((k, x) => k + x.nodes.filter((q) => q.scene).length, 0);
+    const n = c.charts.reduce((k, x) => k + chartSteps(x), 0);
+    const placed = c.charts.reduce((k, x) => k + x.nodes.filter((q) => q.scene && (q.kind !== 'goal' && q.kind !== 'setup')).length, 0);
     ch.append(el('p', 'note', `${c.charts.length} charts, ${n} steps (${placed} placed in a scene), copied ${new Date(c.synced).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Select a scene to see its steps; locks find their keys in them.`));
     ch.append(el('p', 'none', 'To bring in later changes, ask Claude: “sync Plastico with my puzzle charts”.'));
     if (c.source) { const a = el('a', 'btn small', 'Open the puzzle charts'); a.href = c.source; a.target = '_blank'; a.rel = 'noopener'; ch.append(a); }
   } else ch.append(el('p', 'none', 'No puzzle charts with this world. Ask Claude to “sync Plastico with my puzzle charts” to see each scene’s steps here.'));
   box.append(ch);
   const k = section('Keys');
-  k.append(el('p', 'none', 'N add a scene · Delete remove the selection · R route · P play test · S skeleton/pictures · T map view · F fit · 1–4 time of day · Ctrl+Z undo'));
+  const KS = window.CassettoKeys;
+  if (KS) {
+    const ks = [['plastico.add', 'add a scene'], ['plastico.delete', 'remove the selection'], ['plastico.route', 'route'], ['plastico.play', 'play test'],
+      ['plastico.mode', 'skeleton/pictures'], ['plastico.top', 'map view'], ['plastico.fit', 'fit'], ['plastico.undo', 'undo']]
+      .filter(([id]) => KS.label(id)).map(([id, what]) => `${KS.label(id)} ${what}`);
+    const t1 = KS.label('plastico.phase1'), tn = KS.label(`plastico.phase${Math.max(1, Math.min(9, (S.M && S.M.phases.length) || 4))}`);
+    if (t1) ks.push(`${t1}${tn && tn !== t1 ? '–' + tn : ''} time of day`);
+    k.append(el('p', 'none', ks.join(' · ') || 'No keys are set for Plastico.'));
+    if (CS && CS.settings) k.append(btn('Change the keys…', 'btn small', () => CS.settings('keys')));
+  } else k.append(el('p', 'none', 'N add a scene · Delete remove the selection · R route · P play test · S skeleton/pictures · T map view · F fit · 1–4 time of day · Ctrl+Z undo'));
   box.append(k);
 }
 
@@ -887,30 +947,8 @@ function sceneInspector(box, s) {
     }
     box.append(sec);
   }
-  // puzzle steps
-  const steps = M.steps.get(s.id) || [];
+  // the puzzle charts here: the ones with steps in this scene, and the ones pinned to it
   box.append(chartsSection(s, ws));
-  if (steps.length) {
-    const sec = section('Puzzle steps placed here', steps.length);
-    if (!steps.length) sec.append(el('p', 'none', 'No puzzle chart puts a step here.'));
-    const list = el('ul', 'steps');
-    let last = null;
-    for (const { chart, node } of steps) {
-      if (chart !== last) { list.append(el('li', 'chart-name', chart.name)); last = chart; }
-      const li = el('li'); li.append(stepGlyph(node.kind));
-      const t = el('span', '', node.title || 'Untitled step');
-      const extra = [node.who && firstName((M.people.get(node.who) || {}).name) || node.who, node.when].filter(Boolean).join(' · ');
-      li.append(t, el('small', '', extra || (node.status === 'built' ? 'in game' : '')));
-      if (CS) {
-        li.classList.add('link'); li.tabIndex = 0; li.title = `Open “${node.title || 'Untitled step'}” in Puzzle Charts`;
-        const go = () => CS.navigate('puzzles', { chart: chart.id, step: node.id });
-        li.addEventListener('click', go); li.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-      }
-      list.append(li);
-    }
-    sec.append(list);
-    box.append(sec);
-  }
   const notes = el('textarea'); notes.id = 'f-notes'; notes.value = s.notes; notes.placeholder = 'What happens here, what it is for, what is still open…';
   notes.addEventListener('input', () => edit((x) => { ws().notes = notes.value; }, { coalesce: 'notes:' + s.id, insp: false, view: false }));
   box.append(field('Notes', notes));
@@ -1001,46 +1039,82 @@ function setParent(id, parent) {
   });
   if (P) view.focus(id);
 }
-// --- the puzzle charts that belong with a scene: chosen from the project's charts, kept on the scene
+// --- the puzzle charts of a scene. A chart is here when one of its steps is placed here (as Puzzle Charts
+// says, nothing to keep in step); a chart can also be pinned here by hand, before it has steps here.
 function projectCharts() { return (S.bundle.charts && S.bundle.charts.charts) || []; }
+/** The steps of a chart as every view counts them: not the end goals, not the scene setups. */
+function chartSteps(c) { return typeof c.steps === 'number' ? c.steps : c.nodes.filter((n) => n.kind !== 'goal' && n.kind !== 'setup').length; }
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 function chartsSection(s, ws) {
-  const ids = s.charts || [];
-  const sec = section('Puzzle charts', ids.length);
+  const M = S.M;
+  const pinned = s.charts || [];
+  const here = M.steps.get(s.id) || [];
+  const byChart = new Map();
+  for (const st of here) { if (!byChart.has(st.chart.id)) byChart.set(st.chart.id, []); byChart.get(st.chart.id).push(st.node); }
+  const ids = [...byChart.keys(), ...pinned.filter((cid) => !byChart.has(cid))];
+  const sec = section('Puzzle charts here', ids.length);
+  sec.id = 'scene-charts-sec';
   const ul = el('ul', 'links charts'); ul.id = 'scene-charts';
   for (const cid of ids) {
-    const c = S.M.chartById.get(cid);
-    const li = el('li'); const go = el('button', 'go'); go.type = 'button';
+    const c = M.chartById.get(cid);
+    const nodes = byChart.get(cid) || [];
+    const li = el('li', 'chart-here'); li.dataset.chart = cid;
+    const head = el('div', 'chart-head');
+    const go = el('button', 'go'); go.type = 'button';
     if (c) {
-      go.append(stepGlyph('goal'), el('span', 't', c.name), el('span', 's', `act ${c.act} · ${c.nodes.length} step${c.nodes.length === 1 ? '' : 's'}`));
+      const n = nodes.filter((q) => q.kind !== 'goal' && q.kind !== 'setup').length;
+      go.append(stepGlyph('goal'), el('span', 't', c.name),
+        el('span', 's', nodes.length ? `act ${c.act} · ${plural(n, 'step')} here, of ${chartSteps(c)}` : `act ${c.act} · pinned here, no steps here yet`));
       go.title = CS ? `Open “${c.name}” in Puzzle Charts` : c.name;
-      go.addEventListener('click', () => { if (CS) CS.navigate('puzzles', { chart: cid }); else toast('Open the Puzzle Charts page to see it.'); });
+      go.addEventListener('click', () => { if (CS) CS.navigate('puzzles', { chart: cid, scene: s.id }); else toast('Open the Puzzle Charts page to see it.'); });
     } else {
       go.classList.add('missing'); go.append(el('span', 't', 'A chart that isn’t in the project any more'), el('span', 's', cid));
-      go.title = 'It was deleted from Puzzle Charts: remove it from this scene.';
+      go.title = 'It was deleted from Puzzle Charts: take it off this scene.';
     }
-    const x = btn('×', 'x', () => edit((w) => { const sc = ws(); sc.charts = (sc.charts || []).filter((q) => q !== cid); }), 'Take it off this scene (the chart stays in the project)');
-    x.setAttribute('aria-label', 'Take the chart off this scene');
-    li.append(go, x); ul.append(li);
+    head.append(go);
+    if (pinned.includes(cid)) {
+      const x = btn('×', 'x', () => edit((w) => { const sc = ws(); sc.charts = (sc.charts || []).filter((q) => q !== cid); }),
+        nodes.length ? 'Unpin it (it stays here while it has steps here)' : 'Take it off this scene (the chart stays in the project)');
+      x.setAttribute('aria-label', 'Unpin the chart from this scene');
+      head.append(x);
+    }
+    li.append(head);
+    if (c && nodes.length) {
+      const list = el('ul', 'steps');
+      for (const node of nodes) {
+        const st = el('li'); st.append(stepGlyph(node.kind));
+        const extra = [node.who && firstName((M.people.get(node.who) || {}).name) || node.who, node.when].filter(Boolean).join(' · ');
+        st.append(el('span', '', node.title || 'Untitled step'), el('small', '', extra || (node.status === 'built' ? 'in game' : '')));
+        if (CS) {
+          st.classList.add('link'); st.tabIndex = 0; st.title = `Open “${node.title || 'Untitled step'}” in Puzzle Charts`;
+          const open = () => CS.navigate('puzzles', { chart: cid, step: node.id });
+          st.addEventListener('click', open); st.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+        }
+        list.append(st);
+      }
+      li.append(list);
+    }
+    ul.append(li);
   }
-  if (!ids.length) sec.append(el('p', 'none', 'No charts with this scene yet. Pick the ones whose puzzles happen here.'));
+  if (!ids.length) sec.append(el('p', 'none', 'No puzzle steps happen here yet. In Puzzle Charts, a step’s “Where” puts it here; or pin a chart planned for this scene.'));
   sec.append(ul);
   const all = projectCharts();
   const free = all.filter((c) => !ids.includes(c.id));
   const pick = el('select'); pick.id = 'f-add-chart';
-  { const o = el('option', '', free.length ? 'Add a chart from the project…' : all.length ? 'Every chart is already here' : 'No charts in the project yet'); o.value = ''; pick.append(o); }
-  for (const c of free) { const o = el('option', '', `${c.name} · act ${c.act} · ${c.nodes.length} steps`); o.value = c.id; pick.append(o); }
+  { const o = el('option', '', free.length ? 'Pin a chart planned for this scene…' : all.length ? 'Every chart is already here' : 'No charts in the project yet'); o.value = ''; pick.append(o); }
+  for (const c of free) { const o = el('option', '', `${c.name} · act ${c.act} · ${plural(chartSteps(c), 'step')}`); o.value = c.id; pick.append(o); }
   pick.disabled = !free.length;
   pick.addEventListener('change', () => { if (!pick.value) return; const cid = pick.value; edit((w) => { const sc = ws(); sc.charts = [...(sc.charts || []).filter((q) => q !== cid), cid]; }); });
-  sec.append(field('Add', pick));
+  sec.append(field('Pin', pick));
   if (CS) {
     sec.append(btn('New chart for this scene', 'btn small', async () => {
       try {
-        const cid = await CS.call('puzzles.create_chart', s.name || s.id);
+        const cid = await CS.call('puzzles.create_chart', s.name || s.id, Number(s.act) || 1);
         edit((w) => { const sc = ws(); sc.charts = [...(sc.charts || []), cid]; });
         await flushSave();
         CS.navigate('puzzles', { chart: cid });
       } catch (e) { toast(`Couldn’t make the chart: ${e.message}`); }
-    }, 'Makes an empty chart in Puzzle Charts, puts it with this scene, and opens it'));
+    }, 'Makes an empty chart in Puzzle Charts, pins it to this scene, and opens it'));
   }
   return sec;
 }
@@ -1471,11 +1545,21 @@ async function openNewWorld() {
   }, true);
 }
 
+/* ------------------------------------------------------------------ the act on screen */
+// One act for the whole suite: the act shown here is the act of the chart Puzzle Charts opens, and the
+// other way round. `announce`: tell the other modules (not when following them).
+function showAct(a, announce = true) {
+  if (a !== 'all' && !(S.world && S.world.acts.some((x) => x.id === a))) a = 'all';
+  S.ui.act = a;
+  if (announce && CS && CS.setAct) CS.setAct(a);
+}
+const onScreen = () => { try { return !window.frameElement || !window.frameElement.hidden; } catch { return true; } };
+
 /* ------------------------------------------------------------------ loading */
 function applyBundle(b, opts = {}) {
   const changedWorld = S.wid !== b.world.id;
   S.bundle = b; S.wid = b.world.id; S.world = JSON.parse(JSON.stringify(b.world)); S.rev = b.world.rev;
-  if (changedWorld) { S.undo = []; S.redo = []; S.sel = null; S.route = null; S.play = null; view.setToken(null); view.forgetTextures(); S.ui.act = 'all'; S.ui.area = ''; }
+  if (changedWorld) { S.undo = []; S.redo = []; S.sel = null; S.route = null; S.play = null; view.setToken(null); view.forgetTextures(); S.ui.act = 'all'; S.ui.area = ''; showAct(CS && CS.act ? CS.act() : 'all', false); }
   lsSet('plastico:last', S.wid);
   derive();
   renderAll();
@@ -1556,8 +1640,9 @@ $('#btn-drawer').addEventListener('click', () => { $('#app').classList.add('draw
 $('#scrim').addEventListener('click', closeDrawer);
 $('#v-skeleton').addEventListener('click', () => setMode('skeleton'));
 $('#v-pictures').addEventListener('click', () => setMode('pictures'));
-$('#v-people').addEventListener('click', () => { S.ui.people = !S.ui.people; $('#v-people').setAttribute('aria-pressed', S.ui.people); renderView(); });
-$('#v-steps').addEventListener('click', () => { S.ui.steps = !S.ui.steps; $('#v-steps').setAttribute('aria-pressed', S.ui.steps); renderView(); });
+$('#v-people').addEventListener('click', () => togglePeople());
+$('#v-steps').addEventListener('click', () => toggleSteps());
+$('#v-names').addEventListener('click', () => toggleNames());
 $('#z-in').addEventListener('click', () => view.zoom(0.75));
 $('#z-out').addEventListener('click', () => view.zoom(1.33));
 $('#z-fit').addEventListener('click', () => view.fit());
@@ -1565,6 +1650,42 @@ $('#z-top').addEventListener('click', () => toggleTop());
 $('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal') closeModal(); });
 function toggleTop() { S.ui.top = !S.ui.top; $('#z-top').setAttribute('aria-pressed', S.ui.top); view.setTop(S.ui.top); }
 
+// The keys are the suite's (web/shared/keys.js), which the person can change in Cassetto's settings.
+// On its own, Plastico has no such list and keeps the keys it always had.
+const KEYS = window.CassettoKeys || null;
+function defaultAction(e) {
+  const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (mod && !e.altKey && k === 'z') return e.shiftKey ? 'plastico.redo' : 'plastico.undo';
+  if (mod && !e.altKey && k === 'y') return 'plastico.redo';
+  if (mod || e.altKey) return null;
+  if (e.key === 'Delete' || e.key === 'Backspace') return 'plastico.delete';
+  if (/^[1-9]$/.test(k)) return `plastico.phase${k}`;
+  return { f: 'plastico.fit', t: 'plastico.top', s: 'plastico.mode', n: 'plastico.add', r: 'plastico.route', p: 'plastico.play', '=': 'plastico.zoomIn', '-': 'plastico.zoomOut' }[k] || null;
+}
+const togglePeople = () => { S.ui.people = !S.ui.people; $('#v-people').setAttribute('aria-pressed', S.ui.people); renderView(); };
+const toggleSteps = () => { S.ui.steps = !S.ui.steps; $('#v-steps').setAttribute('aria-pressed', S.ui.steps); renderView(); };
+// the scene names: off leaves a dot per scene (its name opens on hover) and the selected scene's name
+const setNames = (on) => { S.ui.names = on; lsSet('plastico:names', on ? 'on' : 'off'); $('#v-names').setAttribute('aria-pressed', on); view.dirty = true; };
+const toggleNames = () => setNames(!S.ui.names);
+const ACTIONS = {
+  'plastico.undo': () => undo(),
+  'plastico.redo': () => redo(),
+  'plastico.delete': () => {
+    if (S.sel && S.sel.type === 'scene') deleteScene(S.sel.id);
+    else if (S.sel && S.sel.type === 'pair') deletePair(S.sel.key);
+  },
+  'plastico.fit': () => view.fit(),
+  'plastico.top': () => toggleTop(),
+  'plastico.mode': () => setMode(S.ui.mode === 'skeleton' ? 'pictures' : 'skeleton'),
+  'plastico.add': () => openAddScene(),
+  'plastico.route': () => (S.route ? stopRoute() : startRoute()),
+  'plastico.play': () => (S.play ? stopPlay() : startPlay()),
+  'plastico.zoomIn': () => view.zoom(0.75),
+  'plastico.zoomOut': () => view.zoom(1.33),
+  'plastico.people': togglePeople,
+  'plastico.steps': toggleSteps,
+  'plastico.names': toggleNames,
+};
 document.addEventListener('keydown', (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
   if (e.key === 'Escape') {
@@ -1573,38 +1694,42 @@ document.addEventListener('keydown', (e) => {
     if (S.route) stopRoute(); else if (S.play) stopPlay(); else select(null);
     return;
   }
-  if (!$('#modal').hidden) return;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); return; }
-  if (typing || e.ctrlKey || e.metaKey || e.altKey || !S.world) return;
-  const k = e.key.toLowerCase();
-  if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (S.sel && S.sel.type === 'scene') deleteScene(S.sel.id);
-    else if (S.sel && S.sel.type === 'pair') deletePair(S.sel.key);
-  } else if (k === 'f') view.fit();
-  else if (k === 't') toggleTop();
-  else if (k === 's') setMode(S.ui.mode === 'skeleton' ? 'pictures' : 'skeleton');
-  else if (k === 'n') openAddScene();
-  else if (k === 'r') (S.route ? stopRoute() : startRoute());
-  else if (k === 'p') (S.play ? stopPlay() : startPlay());
-  else if (/^[1-9]$/.test(k) && S.M.phases[+k - 1]) setPhase(S.M.phases[+k - 1]);
+  if (!$('#modal').hidden || typing || e.defaultPrevented) return;
+  const id = KEYS ? KEYS.find(e, 'plastico') : defaultAction(e);
+  if (!id) return;
+  const ph = /^plastico\.phase(\d)$/.exec(id);
+  if (id !== 'plastico.undo' && id !== 'plastico.redo' && !S.world) return;
+  e.preventDefault();
+  if (ph) { if (S.M && S.M.phases[+ph[1] - 1]) setPhase(S.M.phases[+ph[1] - 1]); return; }
+  if (ACTIONS[id]) ACTIONS[id]();
 });
+if (KEYS) KEYS.onChange(() => { renderPhases(); if (!S.sel) renderInspector(); });
 window.addEventListener('focus', () => { if ($('#modal').hidden && !S.dirty && !S.saving) refresh(false); });
 if (CS) {
   const quiet = () => $('#modal').hidden && !S.dirty && !S.saving;
   CS.on('puzzles.changed', () => { if (quiet()) refresh(false); });
-  CS.on('world.changed', (ev) => { if (ev.source !== 'plastico' && quiet()) refresh(false); });
-  CS.on('activate', () => { if (quiet()) refresh(false); });
+  CS.on('world.changed', (ev) => { if ((ev.source !== 'plastico' || (ev.data && ev.data.by === 'suite')) && quiet()) refresh(false); });
+  CS.on('activate', () => {
+    if (S.fitOnShow) { S.fitOnShow = false; requestAnimationFrame(() => view.fit()); }
+    if (quiet()) refresh(false);
+  });
+  // another module shows another act (a chart of that act opened in Puzzle Charts): show it here too
+  CS.on('act', (ev) => {
+    const a = ev && ev.act;
+    if (!S.world || !a || a === S.ui.act || (a !== 'all' && !S.world.acts.some((x) => x.id === a))) return;
+    showAct(a, false); renderSide(); renderView(); if (!S.sel) renderInspector();
+    if (onScreen()) view.fit(); else S.fitOnShow = true;   // a hidden page has no size to fit to
+  });
   CS.register({
     flush: () => flushSave(),
     navigate: async (t) => {
       if (!t) return;
       for (let i = 0; i < 50 && !S.world; i++) await new Promise((r) => setTimeout(r, 100));
       if (t.act && S.world && !t.scene) {
-        S.ui.act = S.world.acts.some((a) => a.id === t.act) ? t.act : 'all'; select(null); renderSide(); renderView(); view.fit(); return;
+        showAct(t.act); select(null); renderSide(); renderView(); view.fit(); return;
       }
       if (!t.scene) return;
-      if (S.ui.act !== 'all') { const sc = S.M && S.M.scenes.get(t.scene); if (sc && sc.act !== S.ui.act) { S.ui.act = 'all'; renderSide(); renderView(); } }
+      if (S.ui.act !== 'all') { const sc = S.M && S.M.scenes.get(t.scene); if (sc && sc.act !== S.ui.act) { showAct(sc.act); renderSide(); renderView(); } }
       if (S.M && S.M.scenes.has(t.scene)) { select({ type: 'scene', id: t.scene }); view.focus(t.scene); }
       else toast(`There’s no scene ${t.scene} in this world.`);
     },
@@ -1621,5 +1746,6 @@ view.controls.addEventListener('change', () => {
 
 renderKey();
 setMode(lsGet('plastico:mode') === 'pictures' ? 'pictures' : 'skeleton');
+setNames(lsGet('plastico:names') !== 'off');
 window.plastico = { S, view, model };
 boot();

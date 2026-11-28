@@ -90,12 +90,13 @@ src/cassetto/
   core/project.py    the project folder and its manifest, versions, migrations, recent projects
   core/modules.py    Module (one tool) and Core: lifecycle, interfaces between modules, change watching
   core/events.py     what happened in the project, for the pages (long polling)
+  core/settings.py   the user's own settings kept in the config folder (the keyboard shortcuts)
   core/server.py     local HTTP server: the shell, the module pages, /api/core/*, each module's API
   modules/plastico.py, modules/puzzles.py   the two modules: their data, their interfaces, their API
   integrations/godot.py                     the single place the suite asks about Godot
   app.py, cli.py     the window and the command
 web/shell/           the suite's page: project menu, module tabs, save status, dialogs
-web/shared/          the bridge every module page gets (cassetto-bridge.js), fonts
+web/shared/          what every page gets: the bridge (cassetto-bridge.js), the theme, the keyboard shortcuts (keys.js), fonts
 plastico/            Plastico, still runnable on its own (`uv run plastico app` in plastico/)
 puzzle-charts/       Puzzle Charts: index.html is still the claude.ai artifact page; in Cassetto,
                      cassetto-db.js stands in for the artifact's database and saves into the project
@@ -115,24 +116,50 @@ puzzle-charts/       Puzzle Charts: index.html is still the claude.ai artifact p
 - **The theme.** The shell's theme menu switches the whole suite between System, Light, Dark and
   Black (OLED, dark on true black). The choice is kept per browser profile (`web/shared/theme.js`)
   and reaches every module page at once.
+- **Settings** (the gear at the top right, Ctrl+,) holds the theme and the **keyboard shortcuts**.
+  - Every shortcut is an action in `web/shared/keys.js`. Each action has an id (`plastico.fit`), the
+    place it works (*Everywhere*, or one module) and its default keys. The pages ask
+    `CassettoKeys.find(event, scope)` which action a key press means, instead of checking keys
+    themselves.
+  - Click a shortcut, then press the new keys. An action can have up to four shortcuts, or none.
+    Changes work at once in every module, and buttons whose `title` names a key
+    (`data-keys="<id>"`) follow them.
+  - A key another action already uses in the same place is not taken silently. The row asks first:
+    *Use it here* moves the key, *Keep it there* leaves it.
+  - Keys that work everywhere need Ctrl or Alt (or an F key), so typing in a field never sets them
+    off. Esc, Tab, Enter and Space on their own stay free for moving around.
+  - You can search the list by name, or press keys to see what uses them. One action can be reset,
+    or all of them.
+  - Only the changes are kept, in `~/.config/cassetto/keybindings.json`, so they follow you from
+    project to project and between window types. Plastico or Puzzle Charts opened on their own keep
+    their usual keys.
 
 ## What the modules share
 
 | Data | Owner | Offered as | Used by | Up to date |
 | --- | --- | --- | --- | --- |
-| Scenes, people, times of day, acts of the world | Plastico | `world.catalog` | Puzzle Charts: the Where/Who pickers and the "not in the world" checks | read on every request, no cache; Puzzle Charts reloads on each `world.changed` |
+| Scenes, people, times of day, acts of the world (with each scene's act, parent and whether it is in the game) | Plastico | `world.catalog` | Puzzle Charts: Where (the chart's act's scenes first) and Who, the act of a chart, the "not in the world" and "In another act" checks | read on every request; Puzzle Charts reloads on each `world.changed` |
+| Who is in each scene at each time of day (the game's people, less the ones the plan takes away, plus the plan's) | Plastico | `world.catalog` → `people_at` (the Godot scan is read again only when a scene or character file changes) | Puzzle Charts: Who lists the people in the step's scene then first, and the "Not there then" check: it says where the world has them then, and offers to move the step there or put them in its scene | as above |
 | Puzzle charts (steps, scenes, game ids, links) | Puzzle Charts | `puzzles.charts` | Plastico: each scene's steps, where a lock's key is found, the "chart place missing" check | live from the chart files; Plastico refreshes on each `puzzles.changed` |
 | A scene's id changing | Plastico (asks) | `puzzles.rename_scene` | Puzzle Charts moves the steps placed there | when the scene's name sets its new id |
-| Which charts go with which scene (one chart can go with many) | Plastico, on each scene (`charts: [chart ids]` in world.json) | `world.catalog` → `hierarchy` | the project tree, Puzzle Charts ("Scenes" of a chart), `puzzles.references` (charts deleted but still put with a scene) | when a scene's panel adds or takes off a chart |
+| Which charts go with which scene (one chart can go with many) | worked out from the steps: a chart goes with every scene one of its steps is placed in. A chart can also be pinned to a scene by hand before it has steps there (`charts: [chart ids]` in world.json) | `world.catalog` → `hierarchy` (`charts`, `charts_from_steps`, `charts_pinned`, `steps`) | the project tree, Plastico's "Puzzle charts here", Puzzle Charts ("Scenes" of a chart), `puzzles.references` | on every change of either side |
+| The locked ways (what each lock needs) | Plastico | `world.catalog` → `locks` | Puzzle Charts: a step that gives the item or sets the flag says which lock it opens | on every save of the world |
+| Adding a person or scene a step names | Plastico (`world.add_person`, `world.add_scene`, `world.place_person`) | `puzzles.add_to_world` | the broken links list and a step's panel: one click adds it, points the steps at it, and puts a person in the scenes those steps have them in (at the step's time of day, or every time) | at once; an open Plastico page reloads |
 | Scenes inside scenes (`parent`), acts | Plastico | `world.catalog` → `hierarchy` | the project tree | on every save of the world |
+| The act on screen | the shell (one for the whole suite, remembered per project) | `cassetto.act()`, `cassetto.setAct()` and the `act` event in the page bridge | Plastico shows that act; Puzzle Charts opens that act's chart (the one last opened in it, or a fresh one, saved with its first change, when the act has none) and makes new charts in it; opening a chart moves Plastico to the chart's act unless Plastico shows every act; the tree marks the act | at once |
 | Steps pointing at scenes or people the world lacks | Puzzle Charts | `puzzles.references` | the shell's "broken links" counter and list | on every change of either side |
+| A step's person not in its scene at its time of day | worked out by Plastico (the people plan and the game) | Plastico's checks ("Not there then": where the world has them then, a button that puts them there and one that opens the step) | Plastico | on every change of either side |
 
 The two modules link both ways. From a scene in Plastico, you can open any of its steps in Puzzle
-Charts, or add a new step already placed in that scene. From a step in Puzzle Charts, you can show its
-scene in Plastico.
+Charts, or open a chart with that scene's steps highlighted. From a step in Puzzle Charts, you can show
+its scene in Plastico. A chart's panel lists its scenes and people with their step counts (one click
+highlights those steps) and the scenes of its act it doesn't use yet. With an act on screen, Plastico
+lists the act's charts and its scenes with no puzzle step.
 
-- **The project tree** (left, Ctrl+B) shows acts › scenes › scenes inside them › the charts put with
-  each scene, plus the charts that aren't with any scene. A scene opens in Plastico, a chart in Puzzle
+- **The project tree** (left, Ctrl+B) shows acts › the act's charts, then its scenes › scenes inside them ›
+  the charts with steps in each scene (with how many) or pinned to it. A chart for an act the world doesn't
+  have goes in a group of its own. The act on screen has a mark. Steps are counted the
+  same everywhere: every node but the end goals and the scene setups. A scene opens in Plastico, a chart in Puzzle
   Charts, an act filters Plastico to it. It reloads on every `world.changed` / `puzzles.changed`, and
   follows what the modules select.
 - **Changes from outside.** The core notices edits made outside the app, by an editor, git or Claude,
@@ -146,6 +173,8 @@ scene in Plastico.
 ## Godot
 
 Godot is optional. `integrations/godot.py` reports on the linked game and lists what the link does.
+A game is linked when a project is made (**New project › A Godot game** lists the games found in
+`~/Desktop/Projects` and one folder down, or takes any folder) or later in Plastico's World settings.
 
 **Works today.** These were already in Plastico and are unchanged:
 

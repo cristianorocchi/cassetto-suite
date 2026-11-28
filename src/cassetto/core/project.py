@@ -59,7 +59,7 @@ def _pid_alive(pid: int) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        pass             # alive but another user's (pid 1 after a reboot): its command line still tells
     try:
         cmd = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").lower()
     except OSError:

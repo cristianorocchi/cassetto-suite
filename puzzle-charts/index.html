@@ -122,6 +122,10 @@ h2,h3{margin:0;text-wrap:balance}
 .ci-meta{font:400 12px/1.3 var(--f-ui);color:var(--muted);font-variant-numeric:tabular-nums}
 .ci-meta .warn{color:var(--danger)}
 .side-empty{margin:0;padding:4px;color:var(--muted);font-size:13px}
+.act.cur .act-num{color:var(--ink)}
+.chart-new{display:block;width:100%;text-align:left;padding:7px 9px;border:1px dashed var(--line);border-radius:6px;background:none;color:var(--muted);font:400 12.5px/1.3 var(--f-ui);cursor:pointer}
+.chart-new:hover:not(:disabled){background:var(--surface-2);color:var(--ink);border-style:solid}
+.chart-new:disabled{cursor:default;opacity:.6}
 .legend{padding:14px 4px 4px}
 .legend h3,.sec h3{font:600 10px/1.2 var(--f-ui);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
 .legend ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
@@ -130,9 +134,12 @@ h2,h3{margin:0;text-wrap:balance}
 .legend .g{margin-top:2px}
 .side-note{margin:auto 0 0;padding:14px 4px 0;font-size:12px;line-height:1.45;color:var(--muted)}
 .in-cassetto #status{display:none}
-.linkrow{margin:-4px 0 12px}
-.linkrow.scenes{margin:0;display:flex;flex-wrap:wrap;gap:6px}
-.linkrow .warn{display:block;font-size:12px;line-height:1.4;color:var(--k-item)}
+.linkrow{margin:-4px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.linkrow.scenes{margin:0}
+.linkrow .warn{display:block;flex-basis:100%;font-size:12px;line-height:1.4;color:var(--k-item)}
+.linkrow .help{flex-basis:100%;margin:0}
+.linkrow .note{display:block;flex-basis:100%;font-size:12px;line-height:1.4;color:var(--muted)}
+.linkrow .btn.missing{border-style:dashed;opacity:.7}
 .g{width:12px;height:12px;flex:none;display:inline-block;vertical-align:-1px}
 .g path{fill:currentColor}
 
@@ -235,6 +242,37 @@ h2,h3{margin:0;text-wrap:balance}
 .f input:disabled,.f select:disabled,.f textarea:disabled{opacity:.6}
 .f .help{font:400 11.5px/1.35 var(--f-ui);letter-spacing:0;text-transform:none;color:var(--muted)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pick{display:flex;align-items:center;gap:6px;width:100%;min-width:0;height:34px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:0 8px 0 9px;font:400 13.5px/1.35 var(--f-ui);color:var(--ink);cursor:pointer;text-align:left}
+.pick:hover:not(:disabled){border-color:var(--edge)}
+.pick:focus-visible,.pick[aria-expanded="true"]{outline:2px solid var(--ink);outline-offset:-1px;border-color:var(--ink)}
+.pick:disabled{opacity:.6;cursor:default}
+.pick-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-text.ph{color:var(--muted)}
+.pick-chev{width:12px;height:12px;flex:none;color:var(--muted)}
+.pick-pop{position:fixed;z-index:70;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+.pick-q{flex:none;border:0;border-bottom:1px solid var(--line-2);background:transparent;padding:10px 11px;font:400 13.5px/1.3 var(--f-ui);color:var(--ink);outline:none}
+.pick-list{overflow-y:auto;padding:4px;overscroll-behavior:contain}
+.pick-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:9px 8px 4px;font:600 10px/1.2 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.pick-head span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-head em{font-style:normal;letter-spacing:.04em;text-transform:none;flex:none}
+.pick-opt{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 10px;border-radius:5px;cursor:pointer;font:400 13px/1.3 var(--f-ui);color:var(--ink)}
+.pick-opt.on{background:var(--surface-2)}
+.pick-opt[aria-selected="true"] .po-label{font-weight:600}
+.pick-opt[aria-selected="true"]::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink);margin-left:-8px;margin-right:-6px;flex:none}
+.po-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.po-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.po-sub{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.po-tag{flex:none;font:500 10.5px/1 var(--f-ui);padding:3px 5px;border:1px dashed var(--line);border-radius:4px;color:var(--muted)}
+.po-hint{flex:none;font-size:11.5px;color:var(--muted);max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-opt.add{color:var(--ink);font-weight:500;border-top:1px solid var(--line-2);border-radius:0 0 5px 5px;margin-top:4px}
+.po-plus{width:16px;flex:none;text-align:center;font-weight:600}
+.pick-none{padding:12px 10px;font-size:12.5px;color:var(--muted)}
+.btn.chip[aria-pressed="true"],.btn.chip[aria-pressed="true"]:hover:not(:disabled){background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.sec > p.help{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
+.node.match{outline:2px solid var(--kc);outline-offset:3px}
+.focusbar{top:12px;padding:5px 5px 5px 13px;width:max-content;flex-wrap:nowrap;white-space:nowrap}
+.focusbar .btn.icon{width:28px;padding:0;justify-content:center}
+.focusbar .btn.icon svg{width:14px;height:14px}
 .seg{display:flex;flex-wrap:wrap;gap:4px}
 .seg button{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);cursor:pointer;font:500 12px/1 var(--f-ui)}
 .seg button:hover:not(:disabled){background:var(--surface-2)}
@@ -267,6 +305,7 @@ h2,h3{margin:0;text-wrap:balance}
 .issue.error svg{color:var(--danger)}
 .issue.warn svg{color:var(--muted)}
 .issue b{font-weight:600}
+.issues .fixes{display:flex;flex-wrap:wrap;gap:6px;margin:5px 0 3px 31px}
 .ok{margin:0;font-size:12.5px;color:var(--muted)}
 .foot{display:flex;gap:6px;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--line-2)}
 .edge-desc{margin:0;font-size:13.5px;line-height:1.5}
@@ -324,24 +363,24 @@ h2,h3{margin:0;text-wrap:balance}
     <div class="cur-name" id="cur-name"></div>
     <div class="head-tools">
       <div class="menu-wrap">
-        <button class="btn" id="btn-add" type="button" aria-haspopup="true" aria-expanded="false" title="Add a step to the chart">
+        <button class="btn" id="btn-add" data-keys="puzzles.add" type="button" aria-haspopup="true" aria-expanded="false" title="Add a step to the chart">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg><span class="lbl">Add step</span>
         </button>
         <div class="menu" id="menu-add" hidden></div>
       </div>
-      <button class="btn hide-narrow" id="btn-arrange" type="button" aria-pressed="true" title="Auto-arrange: keep the chart laid out, with links that don&#39;t cross">
+      <button class="btn hide-narrow" id="btn-arrange" data-keys="puzzles.arrange" type="button" aria-pressed="true" title="Auto-arrange: keep the chart laid out, with links that don&#39;t cross">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="1.5" width="5" height="3" rx="1"/><rect x="1.5" y="11.5" width="5" height="3" rx="1"/><rect x="9.5" y="11.5" width="5" height="3" rx="1"/><path d="M8 4.5v3M4 11.5V9.5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span class="lbl">Auto-arrange</span>
       </button>
-      <button class="btn icon hide-narrow" id="btn-undo" type="button" aria-label="Undo" title="Undo (Ctrl+Z)">
+      <button class="btn icon hide-narrow" id="btn-undo" data-keys="puzzles.undo" type="button" aria-label="Undo" title="Undo (Ctrl+Z)">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a4 4 0 0 1 0 8H7"/></svg>
       </button>
-      <button class="btn icon hide-narrow" id="btn-redo" type="button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
+      <button class="btn icon hide-narrow" id="btn-redo" data-keys="puzzles.redo" type="button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a4 4 0 0 0 0 8H9"/></svg>
       </button>
-      <button class="btn" id="btn-play" type="button" aria-pressed="false" title="Walk through the chart as the player would">
+      <button class="btn" id="btn-play" data-keys="puzzles.play" type="button" aria-pressed="false" title="Walk through the chart as the player would">
         <svg viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg><span class="lbl">Play test</span>
       </button>
-      <button class="btn icon only-sheet" id="btn-info" type="button" aria-label="Chart details" title="Chart details">
+      <button class="btn icon only-sheet" id="btn-info" data-keys="puzzles.info" type="button" aria-label="Chart details" title="Chart details">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 7.3v4M8 4.8v.1"/></svg>
       </button>
       <div class="menu-wrap">
@@ -353,7 +392,7 @@ h2,h3{margin:0;text-wrap:balance}
           <button class="mi only-narrow" type="button" data-act="undo">Undo</button>
           <button class="mi only-narrow" type="button" data-act="redo">Redo</button>
           <div class="mi-sep only-narrow"></div>
-          <button class="mi" type="button" data-act="fit">Fit chart to screen<small>Shortcut: F</small></button>
+          <button class="mi" type="button" data-act="fit" data-keys="puzzles.fit">Fit chart to screen<small data-keys-text="Shortcut: ">Shortcut: F</small></button>
           <button class="mi" type="button" data-act="copy-json">Copy as JSON<small>Every step and link, with the game ids</small></button>
           <button class="mi" type="button" data-act="copy-walk">Copy as walkthrough<small>The steps in an order the player could do them</small></button>
         </div>
@@ -364,7 +403,7 @@ h2,h3{margin:0;text-wrap:balance}
 
   <aside class="side panel" id="side" aria-label="Charts">
     <div class="side-head"><h2>Charts</h2>
-      <button class="btn small" id="btn-new" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>New chart</button>
+      <button class="btn small" id="btn-new" data-keys="puzzles.new" type="button" title="Start a new chart"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>New chart</button>
     </div>
     <div class="chart-list" id="chart-list"></div>
     <section class="legend"><h3>Kinds of step</h3><ul id="legend"></ul></section>
@@ -387,13 +426,14 @@ h2,h3{margin:0;text-wrap:balance}
       <div id="nodes"></div>
     </div>
     <div class="stage-ui banner" id="banner" hidden></div>
+    <div class="stage-ui banner focusbar" id="focusbar" hidden></div>
     <div class="stage-ui empty" id="empty" hidden></div>
     <div class="stage-ui hint" id="hint">Double-click to add a step · drag a step's dot onto another to link them · wheel to zoom · steps line up when close; hold <kbd>Shift</kbd> to place one freely</div>
     <div class="stage-ui zoom">
-      <button class="btn icon" id="z-out" type="button" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button>
+      <button class="btn icon" id="z-out" data-keys="puzzles.zoomOut" type="button" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button>
       <span id="z-level">100%</span>
-      <button class="btn icon" id="z-in" type="button" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
-      <button class="btn icon" id="z-fit" type="button" aria-label="Fit chart to screen" title="Fit chart to screen (F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
+      <button class="btn icon" id="z-in" data-keys="puzzles.zoomIn" type="button" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+      <button class="btn icon" id="z-fit" data-keys="puzzles.fit" type="button" aria-label="Fit chart to screen" title="Fit chart to screen (F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
     </div>
   </main>
 
@@ -442,7 +482,11 @@ const GLYPHS = {
 let SCENES = [];
 let PEOPLE = [['player', 'The player']];
 let SCENE_NAME = Object.fromEntries(SCENES);
-let SCENES_OF_CHART = new Map();   // chart id -> the world's scenes it is put with (Plastico, through Cassetto)
+let SCENES_OF_CHART = new Map();   // chart id -> the world's scenes it is pinned to by hand (Plastico, through Cassetto)
+let LOCKS = [];                    // the world's locked ways: [{from, to, needs, type, where}]
+let SCENE_INFO = new Map();        // scene id -> {id, name, act, parent, kind, inGame, status}: the world's scenes (Plastico)
+let SCENE_ORDER = [];              // [[scene id, depth]]: by act, by name, each scene followed by the scenes inside it
+let PEOPLE_AT = null;              // {scene: {time of day: [person ids]}}: who the world puts where; null when it doesn't say
 let PERSON_NAME = Object.fromEntries(PEOPLE.map(([id, n]) => [id, n.split(',')[0]]));
 // The scene and people lists follow Plastico, the 3D world model, when Claude has synced the two
 // (database doc meta/world). Until then, and if that doc can't be read, the lists above are used.
@@ -462,19 +506,112 @@ function applyWorld(d) {
   if (people) PEOPLE = [['player', 'The player']].concat(people.filter(([id]) => id !== 'player'));
   SCENE_NAME = Object.fromEntries(SCENES);
   PERSON_NAME = Object.fromEntries(PEOPLE.map(([id, n]) => [id, n.split(',')[0]]));
+  // charts pinned to a scene by hand in Plastico (the scenes a chart's steps are in come from the chart itself)
   SCENES_OF_CHART = new Map();
   for (const sc of Array.isArray(d.hierarchy) ? d.hierarchy.slice(0, 2000) : []) {
-    if (!sc || typeof sc.id !== 'string' || sc.delete || !Array.isArray(sc.charts)) continue;
-    for (const cid of sc.charts) { if (!SCENES_OF_CHART.has(cid)) SCENES_OF_CHART.set(cid, []); SCENES_OF_CHART.get(cid).push([sc.id, str(sc.name) || sc.id]); }
+    if (!sc || typeof sc.id !== 'string' || sc.delete) continue;
+    const pinned = Array.isArray(sc.charts_pinned) ? sc.charts_pinned : Array.isArray(sc.charts) && !sc.charts_from_steps ? sc.charts : [];
+    for (const cid of pinned) { if (!SCENES_OF_CHART.has(cid)) SCENES_OF_CHART.set(cid, []); SCENES_OF_CHART.get(cid).push([sc.id, str(sc.name) || sc.id]); }
   }
+  // the locked ways in the world: a step that gives the item or sets the flag a lock needs opens it
+  LOCKS = (Array.isArray(d.locks) ? d.locks.slice(0, 1000) : []).filter((l) => l && typeof l.needs === 'string' && typeof l.from === 'string' && typeof l.to === 'string');
+  // the acts and the times of day are the world's: a chart's act is one of Plastico's acts
+  const acts = (Array.isArray(d.acts) ? d.acts.slice(0, 99) : []).map((a) => (Array.isArray(a) ? [Number(a[0]), str(a[1])] : null))
+    .filter((a) => a && Number.isInteger(a[0]) && a[0] >= 1 && a[0] <= 99);
+  if (acts.length) { ACTS = acts; ACTS_FROM_WORLD = true; }
+  const phases = (Array.isArray(d.phases) ? d.phases.slice(0, 12) : []).filter((x) => typeof x === 'string' && x.trim());
+  if (phases.length) PHASES = phases;
+  // each scene's act, the scene it is in, and whether it is in the game yet
+  SCENE_INFO = new Map();
+  for (const sc of Array.isArray(d.hierarchy) ? d.hierarchy.slice(0, 2000) : []) {
+    if (!sc || typeof sc.id !== 'string' || sc.delete || !SCENE_NAME[sc.id]) continue;
+    SCENE_INFO.set(sc.id, { id: sc.id, name: SCENE_NAME[sc.id], act: String(sc.act || ''), parent: str(sc.parent), kind: str(sc.kind), inGame: !!sc.in_game, status: str(sc.status) });
+  }
+  for (const [id, name] of SCENES) if (!SCENE_INFO.has(id)) SCENE_INFO.set(id, { id, name, act: '', parent: '', kind: '', inGame: false, status: '' });
+  const kids = new Map(), byName = (a, b) => SCENE_INFO.get(a).name.localeCompare(SCENE_INFO.get(b).name);
+  for (const s of SCENE_INFO.values()) if (s.parent && SCENE_INFO.has(s.parent)) { if (!kids.has(s.parent)) kids.set(s.parent, []); kids.get(s.parent).push(s.id); }
+  SCENE_ORDER = []; const seen = new Set();
+  const visit = (id, depth) => { if (seen.has(id)) return; seen.add(id); SCENE_ORDER.push([id, depth]); for (const k of (kids.get(id) || []).sort(byName)) visit(k, depth + 1); };
+  for (const id of [...SCENE_INFO.keys()].filter((x) => !SCENE_INFO.get(x).parent || !SCENE_INFO.has(SCENE_INFO.get(x).parent)).sort(byName)) visit(id, 0);
+  for (const id of SCENE_INFO.keys()) visit(id, 0);
+  PEOPLE_AT = d.people_at && typeof d.people_at === 'object' && !Array.isArray(d.people_at) ? d.people_at : null;
   return true;
 }
-function fillLists() {
-  const ds = $('#dl-scenes'); ds.textContent = ''; for (const [id, n] of SCENES) { const o = el('option'); o.value = id; o.label = n; ds.append(o); }
-  const dp = $('#dl-people'); dp.textContent = ''; for (const [id, n] of PEOPLE) { const o = el('option'); o.value = id; o.label = n; dp.append(o); }
+/** Who the world puts in a scene, at one time of day or (none) at any; null when the world doesn't say. */
+function peopleIn(scene, when) {
+  if (!PEOPLE_AT) return null;
+  const per = PEOPLE_AT[scene] || {};
+  return new Set(when ? per[when] || [] : Object.values(per).flat());
 }
-const PHASES = ['morning', 'day', 'sunset', 'midnight'];
-const ACTS = [[1, ''], [2, ''], [3, ''], [4, '']];   // titles are yours to write; empty shows just the number
+/** The times of day the world puts a person in a scene. */
+const timesIn = (scene, who) => { const per = (PEOPLE_AT && PEOPLE_AT[scene]) || {}; return PHASES.filter((ph) => (per[ph] || []).includes(who)); };
+/** The scenes the world puts a person in, at that time of day (none: at any), in the order of the scene lists. */
+function whereIs(who, when) {
+  if (!PEOPLE_AT) return [];
+  return SCENE_ORDER.map(([id]) => id).filter((id) => { const ps = peopleIn(id, when); return ps && ps.has(who); });
+}
+const andList = (xs) => (xs.length <= 2 ? xs.join(' and ') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
+/** For a step whose person the world doesn't put in its scene then: the scenes it has them in at that time
+ * (no time: at any), the chart's act first. */
+function elsewhere(who, scene, when, act) {
+  const w = whereIs(who, when).filter((id) => id !== scene), a = String(act);
+  return [...w.filter((id) => sceneAct(id) === a), ...w.filter((id) => sceneAct(id) !== a)];
+}
+/** The scenes such a step can move to with one click: up to two of them, in the chart's act. */
+const moveTargets = (who, scene, when, act) => elsewhere(who, scene, when, act).filter((id) => !sceneAct(id) || sceneAct(id) === String(act)).slice(0, 2);
+/** Where the world has them instead, said in a sentence or two ('' when it has them nowhere at all). */
+function whereInstead(who, scene, when, act) {
+  if (!PEOPLE_AT) return '';
+  const nm = personName(who), w = elsewhere(who, scene, when, act);
+  const one = (id) => { const ts = when ? [] : timesIn(id, who); return sceneName(id) + (ts.length && ts.length < PHASES.length ? ` (${andList(ts)})` : ''); };
+  const names = w.length > 3 ? `${w.slice(0, 3).map(one).join(', ')} and ${w.length - 3} more` : andList(w.map(one));
+  let s = when ? (w.length ? `At ${when} the world puts ${nm} in ${names}.` : `At ${when} the world doesn’t put ${nm} in any scene.`)
+    : (w.length ? `The world puts ${nm} in ${names}.` : '');
+  const here = when ? timesIn(scene, who) : [];
+  if (here.length) s += ` ${sceneName(scene)} has ${nm} at ${andList(here)}.`;
+  return s.trim();
+}
+/** Put a person in a scene at a time of day (none: at every time), in Plastico's People here. */
+async function placePerson(who, scene, when) {
+  await CS.call('world.place_person', who, scene, when ? [when] : null);
+  if (PEOPLE_AT) { const per = PEOPLE_AT[scene] = PEOPLE_AT[scene] || {}; for (const ph of when ? [when] : PHASES) { per[ph] = per[ph] || []; if (!per[ph].includes(who)) per[ph].push(who); } }
+}
+/** Steps of a chart moved to another scene, keeping everything else. */
+function moveSteps(c, ids, scene) {
+  pushUndo();
+  for (const n of c.nodes) if (ids.includes(n.id)) n.scene = scene;
+  scheduleSave(); render();
+}
+const actTitle = (a) => (ACTS.find((x) => x[0] === a) || [a, ''])[1];
+const actLabel = (a) => (actTitle(a) ? `Act ${a} · ${actTitle(a)}` : `Act ${a}`);
+const sceneAct = (id) => { const s = SCENE_INFO.get(id); return s && s.act ? s.act : ''; };
+const plural = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
+const isStep = (n) => n.kind !== 'goal' && n.kind !== 'setup';
+// Where and Who show names and save ids. A name two entries share shows its id too: "Hall (hall_2)".
+function pickNames(list) {
+  const count = new Map(); for (const [, n] of list) count.set(n.toLowerCase(), (count.get(n.toLowerCase()) || 0) + 1);
+  return list.map(([id, n]) => [id, count.get(n.toLowerCase()) > 1 ? `${n} (${id})` : n]);
+}
+function fillLists() {
+  const ds = $('#dl-scenes'); ds.textContent = ''; for (const [id, n] of pickNames(SCENES)) { const o = el('option'); o.value = n; if (n !== id) o.label = id; ds.append(o); }
+  const dp = $('#dl-people'); dp.textContent = ''; for (const [id, n] of pickNames(PEOPLE)) { const o = el('option'); o.value = n; if (n !== id) o.label = id; dp.append(o); }
+}
+/** What was typed in Where or Who, as the id it means: an id, a name (any case), or "Name (id)"; else the text itself. */
+function pickId(list, v) {
+  const s = v.trim(); if (!s) return '';
+  const lo = s.toLowerCase();
+  for (const [id] of list) if (id === s) return id;
+  for (const [id, n] of pickNames(list)) if (n.toLowerCase() === lo) return id;
+  for (const [id, n] of list) if (n.toLowerCase() === lo) return id;
+  const m = /\(([^()]+)\)\s*$/.exec(s); if (m && list.some(([id]) => id === m[1])) return m[1];
+  return s;
+}
+const pickLabel = (list, id) => { if (!id) return ''; const hit = pickNames(list).find(([x]) => x === id); return hit ? hit[1] : id; };
+/** A name for something a step names that the world doesn't have yet: "stationmaster (new)" -> "Stationmaster". */
+const niceNew = (v) => { const s = v.replace(/\s*\((new|nuovo|nuova)\)\s*$/i, '').trim() || v.trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
+let PHASES = ['morning', 'day', 'sunset', 'midnight'];   // the world's times of day, when it has them
+let ACTS = [[1, ''], [2, ''], [3, ''], [4, '']];   // Plastico's acts and their names in Cassetto; on its own, four untitled acts
+let ACTS_FROM_WORLD = false;                         // true once the world said which acts it has
 const STATUSES = [['idea', 'Idea'], ['written', 'Written'], ['built', 'In game']];
 const STATUS_LABEL = Object.fromEntries(STATUSES);
 const LS_LAST = 'puzzle-charts:last';
@@ -485,7 +622,7 @@ const HINT_FREE = 'Double-click to add a step · drag a step’s dot onto anothe
 const S = {
   charts: new Map(), currentId: null, sel: null,
   view: { x: 0, y: 0, k: 1 }, views: new Map(),
-  play: null, an: null, hl: null,
+  play: null, an: null, hl: null, focus: null,
   db: null, dbState: 'loading', loaded: false, readOnly: false, saveErr: '',
   dirty: new Set(), inflight: new Set(), timers: new Map(), localOnly: new Set(),
   undo: new Map(), redo: new Map(), lastEdit: null,
@@ -537,7 +674,7 @@ function normalize(id, d) {
     if (!e || !ids.has(e.from) || !ids.has(e.to) || e.from === e.to) return false;
     const k = e.from + '>' + e.to; if (seen.has(k)) return false; seen.add(k); return true;
   }).map((e) => ({ from: e.from, to: e.to }));
-  return { id, name: str(d.name) || 'Untitled chart', act: [1, 2, 3, 4].includes(d.act) ? d.act : 1, notes: str(d.notes),
+  return { id, name: str(d.name) || 'Untitled chart', act: Number.isInteger(d.act) && d.act >= 1 && d.act <= 99 ? d.act : 1, notes: str(d.notes),
     nodes, edges, auto: d.auto !== false, createdAt: num(d.createdAt) || Date.now(), updatedAt: num(d.updatedAt), rev: str(d.rev) };
 }
 function serialize(c) {
@@ -630,6 +767,25 @@ function analyze(c) {
     if (away.length) issues.push({ level: 'warn', head: 'Place not in the world', text: `${listNames(away.map((n) => nodeTitle(n)))} ${away.length > 1 ? 'are' : 'is'} placed in ${listNames([...new Set(away.map((n) => n.scene))])}, which the world doesn't have. Pick a scene it has, or add the scene in Plastico.`, nodes: away.map((n) => n.id) });
     const nobody = c.nodes.filter((n) => n.who && !PERSON_NAME[n.who]);
     if (nobody.length) issues.push({ level: 'warn', head: 'Person not in the world', text: `${listNames(nobody.map((n) => nodeTitle(n)))} ${nobody.length > 1 ? 'involve' : 'involves'} ${listNames([...new Set(nobody.map((n) => n.who))])}, who isn't among the world's people.`, nodes: nobody.map((n) => n.id) });
+    // a step in a scene of another act than the chart's
+    const other = new Map();
+    for (const n of c.nodes) { const a = sceneAct(n.scene); if (a && a !== String(c.act)) { if (!other.has(n.scene)) other.set(n.scene, []); other.get(n.scene).push(n); } }
+    for (const [sc, ns] of other) issues.push({ level: 'warn', head: 'In another act', text: `${listNames(ns.map((n) => nodeTitle(n)))} ${ns.length > 1 ? 'are' : 'is'} in ${sceneName(sc)}, a scene of act ${sceneAct(sc)}; this chart is act ${c.act}. Pick a scene of act ${c.act}, or move the chart to act ${sceneAct(sc)}.`, nodes: ns.map((n) => n.id) });
+    // someone in a scene at a time of day when the world (Plastico's People here) doesn't put them there
+    if (PEOPLE_AT) {
+      const off = new Map();
+      for (const n of c.nodes) {
+        if (!isStep(n) || !n.who || n.who === 'player' || !PERSON_NAME[n.who] || !SCENE_NAME[n.scene]) continue;
+        const when = PHASES.includes(n.when) ? n.when : '';   // as Plastico reads it: a time it doesn't have is any time
+        if (peopleIn(n.scene, when).has(n.who)) continue;
+        const k = `${n.who}|${n.scene}|${when}`; if (!off.has(k)) off.set(k, { when, ns: [] }); off.get(k).ns.push(n);
+      }
+      for (const { when, ns } of off.values()) {
+        const n = ns[0], who = personName(n.who), why = whereInstead(n.who, n.scene, when, c.act);
+        issues.push({ level: 'warn', head: 'Not there then', text: `${listNames(ns.map((q) => nodeTitle(q)))} ${ns.length > 1 ? 'have' : 'has'} ${who} in ${sceneName(n.scene)}${when ? ` at ${when}` : ''}, where the world doesn’t have ${who} ${when ? 'then' : 'at any time'}.${why ? ' ' + why : ''}`,
+          nodes: ns.map((q) => q.id), fix: { who: n.who, scene: n.scene, when, to: moveTargets(n.who, n.scene, when, c.act) } });
+      }
+    }
   }
   const subgoals = c.nodes.filter((n) => n.kind === 'subgoal');
   const setups = c.nodes.filter((n) => n.kind === 'setup').length;
@@ -703,6 +859,9 @@ function computeHighlight() {
     }
   } else if (S.sel && S.sel.type === 'edge') {
     hl.edge.set(S.sel.from + '>' + S.sel.to, 'e-sel');
+  } else if (S.focus) {   // a scene's or a person's steps
+    for (const n of c.nodes) hl.node.set(n.id, focusHas(n) ? 'match' : 'dim');
+    for (const e of c.edges) { const a = an.byId.get(e.from), b = an.byId.get(e.to); hl.edge.set(e.from + '>' + e.to, a && b && focusHas(a) && focusHas(b) ? '' : 'e-dim'); }
   }
 }
 
@@ -806,7 +965,7 @@ function renderOverlays() {
       empty.append(el('p', '', 'Start from the end goal and work backwards: what does the player need just before it?'));
       if (S.dbState === 'off') empty.append(el('p', 'note', 'Saving is off in this view. Open the page in Claude to keep your charts.'));
       if (!S.readOnly) {
-        const row = el('div', 'row'); const b = el('button', 'btn primary', 'New chart'); b.type = 'button'; b.onclick = newChart; row.append(b); empty.append(row);
+        const row = el('div', 'row'); const b = el('button', 'btn primary', 'New chart'); b.type = 'button'; b.onclick = () => newChart(); row.append(b); empty.append(row);
       }
     }
     show(empty, true);
@@ -847,22 +1006,31 @@ function renderSide() {
   const list = $('#chart-list'); list.textContent = '';
   const charts = [...S.charts.values()];
   if (!charts.length) { list.append(el('p', 'side-empty', S.loaded ? 'No charts yet. Make the first with New chart.' : 'Loading…')); }
-  for (const [act, title] of ACTS) {
+  const acts = ACTS.map((a) => a[0]); for (const c of charts) if (!acts.includes(c.act)) acts.push(c.act);
+  const curAct = cur() ? cur().act : null;
+  for (const act of acts.sort((a, b) => a - b)) {
+    const title = actTitle(act);
     const group = charts.filter((c) => c.act === act).sort((a, b) => a.name.localeCompare(b.name));
-    if (!group.length) continue;
-    const g = el('div', 'act');
-    const h = el('div', 'act-head'); h.append(el('span', 'act-num', 'Act ' + act), el('span', 'act-title', title)); g.append(h);
+    // in Cassetto every act of the world has its place, with a way to start its chart; on its own, only acts with charts
+    if (!group.length && (!ACTS_FROM_WORLD || !charts.length)) continue;
+    const g = el('div', 'act' + (act === curAct ? ' cur' : ''));
+    const h = el('div', 'act-head'); h.append(el('span', 'act-num', 'Act ' + act), el('span', 'act-title', title)); if (title) h.title = actLabel(act); g.append(h);
+    if (!group.length) {
+      const b = el('button', 'chart-new', `New chart for act ${act}`); b.type = 'button'; b.disabled = S.readOnly;
+      b.onclick = () => { newChart(act); S.drawer = false; updateChrome(); };
+      g.append(b);
+    }
     for (const c of group) {
       const b = el('button', 'chart-item' + (c.id === S.currentId ? ' on' : '')); b.type = 'button';
       if (c.id === S.currentId) b.setAttribute('aria-current', 'true');
       const an = analyze(c);
-      const meta = el('span', 'ci-meta', `${an.steps} step${an.steps === 1 ? '' : 's'}`);
+      const meta = el('span', 'ci-meta', c.fresh ? 'New: saved with your first change' : `${an.steps} step${an.steps === 1 ? '' : 's'}`);
       const errs = an.issues.filter((i) => i.level === 'error').length;
       const warns = an.issues.length - errs;
       if (errs) meta.append(' · ', el('span', 'warn', `${errs} deadlock${errs === 1 ? '' : 's'}`));
-      else if (warns) meta.append(` · ${warns} to check`);
+      else if (warns && !c.fresh) meta.append(` · ${warns} to check`);
       b.append(el('span', 'ci-name', c.name), meta);
-      b.onclick = () => { openChart(c.id); S.drawer = false; updateChrome(); };
+      b.onclick = () => { openChart(c.id, { announce: true }); S.drawer = false; updateChrome(); };
       g.append(b);
     }
     list.append(g);
@@ -911,6 +1079,7 @@ function beginEdit(key) {
 }
 
 function renderInspector() {
+  closePick(false);
   const box = $('#insp'); box.textContent = '';
   const c = cur();
   if (!c) { panelHead(box, 'Details'); box.append(el('p', 'insp-empty', S.loaded ? 'Open a chart, or make a new one, to see its details here.' : 'Loading charts…')); return; }
@@ -924,18 +1093,12 @@ function chartPanel(box, c) {
   panelHead(box, 'Chart');
   box.append(field('Name', input('f-chart-name', c.name, 'What this chart is about', (v) => { beginEdit('chart-name'); c.name = v; scheduleSave(); renderSide(); updateChrome(); })));
   const sel = el('select'); sel.id = 'f-chart-act'; sel.disabled = S.readOnly;
-  for (const [a, t] of ACTS) { const o = el('option', '', t ? `Act ${a} · ${t}` : `Act ${a}`); o.value = String(a); if (a === c.act) o.selected = true; sel.append(o); }
-  sel.onchange = () => { pushUndo(); c.act = Number(sel.value); scheduleSave(); renderSide(); };
-  box.append(field('Act', sel));
+  const actIds = ACTS.map((a) => a[0]); if (!actIds.includes(c.act)) actIds.push(c.act);
+  for (const a of actIds.sort((x, y) => x - y)) { const o = el('option', '', actLabel(a)); o.value = String(a); if (a === c.act) o.selected = true; sel.append(o); }
+  sel.onchange = () => { pushUndo(); c.act = Number(sel.value); lsSet(`${LS_LAST}:act:${c.act}`, c.id); scheduleSave(); render(); if (CS && CS.setAct) CS.setAct(String(c.act), true); };
+  box.append(field('Act', sel, SCENE_INFO.size ? 'The act in Plastico: Where offers its scenes first.' : ''));
   box.append(field('Notes', textarea('f-chart-notes', c.notes, 'What the player is trying to do, and why', (v) => { beginEdit('chart-notes'); c.notes = v; scheduleSave(); })));
-  if (CS) {   // the scenes in Plastico this chart is put with (set from each scene's panel there)
-    const at = SCENES_OF_CHART.get(c.id) || [];
-    const sc = el('section', 'sec'); const hh = el('h3', '', 'Scenes'); if (at.length) hh.append(el('em', '', String(at.length))); sc.append(hh);
-    if (!at.length) sc.append(el('p', 'help', 'Not put with any scene yet. In Plastico, a scene’s panel adds charts to it.'));
-    const row = el('div', 'linkrow scenes');
-    for (const [id, nm] of at) { const b = el('button', 'btn small', nm); b.type = 'button'; b.title = `Show ${nm} in Plastico`; b.onclick = () => { flushNow(c.id); CS.navigate('plastico', { scene: id }); }; row.append(b); }
-    sc.append(row); box.append(sc);
-  }
+  if (SCENES.length) worldSection(box, c);
 
   const an = S.an;
   const stats = el('div', 'stats');
@@ -958,7 +1121,23 @@ function chartPanel(box, c) {
       const t = el('span'); t.append(el('b', '', is.head + '. '), document.createTextNode(is.text)); b.append(t);
       if (is.nodes.length) b.onclick = () => { select({ type: 'node', id: is.nodes[0] }); centerOn(is.nodes[0]); };
       else b.style.cursor = 'default';
-      li.append(b); ul.append(li);
+      li.append(b);
+      if (is.fix && !S.readOnly) {   // "Not there then": move the steps to where the person is then, or put them here
+        const { who, scene, when, to } = is.fix, fx = el('div', 'fixes'), k = is.nodes.length;
+        for (const sc of to) {
+          const m = el('button', 'btn small fix', `Move ${k > 1 ? `the ${k} steps` : 'the step'} to ${sceneName(sc)}`); m.type = 'button';
+          m.title = `Where the world has ${personName(who)}${when ? ` at ${when}` : ''}`;
+          m.onclick = () => moveSteps(c, is.nodes, sc); fx.append(m);
+        }
+        if (CS) {
+          const p = el('button', 'btn small fix', `Put ${personName(who)} in ${sceneName(scene)}${when ? ` at ${when}` : ''}`); p.type = 'button';
+          p.title = `Adds ${personName(who)} to People here in ${sceneName(scene)} in Plastico${when ? ` at ${when}` : ', at every time of day'}`;
+          p.onclick = async () => { p.disabled = true; try { await placePerson(who, scene, when); render(); } catch (e) { p.disabled = false; toast(`Couldn’t put ${personName(who)} there: ${e.message}`); } };
+          fx.append(p);
+        }
+        if (fx.childNodes.length) li.append(fx);
+      }
+      ul.append(li);
     }
     chk.append(ul);
   }
@@ -975,6 +1154,215 @@ function chartPanel(box, c) {
     };
     foot.append(dup, del); box.append(foot);
   }
+}
+
+// The world this chart happens in (Plastico): its scenes and people, with how many steps each. One click shows
+// those steps on the chart.
+function worldSection(box, c) {
+  const sec = el('section', 'sec'); sec.id = 'chart-scenes';
+  const head = (txt, k) => { const h = el('h3', '', txt); if (k) h.append(el('em', '', String(k))); return h; };
+  const per = new Map(), who = new Map();
+  for (const q of c.nodes) {
+    if (!isStep(q)) continue;
+    if (q.scene) per.set(q.scene, (per.get(q.scene) || 0) + 1);
+    if (q.who) who.set(q.who, (who.get(q.who) || 0) + 1);
+  }
+  const at = [...per.entries()].map(([id, k]) => [id, sceneName(id), k]).sort((a, b) => b[2] - a[2] || a[1].localeCompare(b[1]));
+  for (const [id, nm] of SCENES_OF_CHART.get(c.id) || []) if (!per.has(id)) at.push([id, nm, 0]);
+  const chip = (label, on, title, run, missing) => {
+    const b = el('button', 'btn small chip' + (missing ? ' missing' : '')); b.type = 'button'; b.textContent = label; b.title = title;
+    b.setAttribute('aria-pressed', String(!!on)); b.onclick = run; return b;
+  };
+  const isOn = (kind, id) => !!(S.focus && S.focus.kind === kind && S.focus.id === id);
+  sec.append(head('Scenes', at.length));
+  if (!at.length) sec.append(el('p', 'help', 'No step is placed in a scene yet. A step’s Where puts it in one of the world’s scenes.'));
+  const row = el('div', 'linkrow scenes');
+  for (const [id, nm, k] of at) {
+    const known = !!SCENE_NAME[id];
+    row.append(chip(k ? `${nm} · ${k}` : `${nm} · pinned`, isOn('scene', id),
+      !known ? `No scene “${id}” in the world yet` : k ? `Show the ${plural(k, 'step')} in ${nm} on the chart` : 'Pinned to this scene in Plastico, no steps here yet',
+      () => setFocus('scene', id), !known));
+  }
+  sec.append(row);
+  const ppl = [...who.entries()].filter(([id]) => id !== 'player').map(([id, k]) => [id, personName(id), k]).sort((a, b) => b[2] - a[2] || a[1].localeCompare(b[1]));
+  sec.append(head('People', ppl.length));
+  if (!ppl.length) sec.append(el('p', 'help', 'Nobody yet. A step’s Who picks from the world’s people.'));
+  const prow = el('div', 'linkrow scenes');
+  for (const [id, nm, k] of ppl) prow.append(chip(`${nm} · ${k}`, isOn('who', id), PERSON_NAME[id] ? `Show the ${plural(k, 'step')} with ${nm} on the chart` : `Nobody called “${id}” in the world yet`, () => setFocus('who', id), !PERSON_NAME[id]));
+  sec.append(prow);
+  // the act's scenes no step of this chart is in yet (every room should have a purpose)
+  const unused = SCENE_ORDER.map(([id]) => id).filter((id) => sceneAct(id) === String(c.act) && !per.has(id));
+  if (unused.length && at.length) {
+    const all = SCENE_ORDER.filter(([id]) => sceneAct(id) === String(c.act)).length;
+    const p2 = el('p', 'help'); p2.id = 'chart-unused';
+    p2.textContent = `${unused.length} of act ${c.act}’s ${all} scenes have no step of this chart: ${unused.slice(0, 8).map(sceneName).join(', ')}${unused.length > 8 ? ', …' : '.'}`;
+    sec.append(p2);
+  }
+  box.append(sec);
+}
+/** Shows a scene's or a person's steps on the chart (the others fade), or stops showing them. */
+function setFocus(kind, id) {
+  S.focus = kind && !(S.focus && S.focus.kind === kind && S.focus.id === id) ? { kind, id } : null;
+  if (S.focus && S.sel && S.sel.type !== 'chart') S.sel = null;
+  renderCanvas(); renderInspector(); updateChrome();
+  if (S.focus) { const c = cur(); const hit = c && c.nodes.filter((n) => focusHas(n)); if (hit && hit.length) S.view = fitFor(hit.map((n) => ({ x: n.x, y: n.y, h: nodeH(n.id) }))), applyView(); }
+}
+const focusHas = (n) => !!S.focus && (S.focus.kind === 'scene' ? n.scene === S.focus.id : n.who === S.focus.id);
+function renderFocus() {
+  const bar = $('#focusbar'); const c = cur();
+  if (!S.focus || !c || S.play) { show(bar, false); return; }
+  const k = c.nodes.filter(focusHas).length, f = S.focus;
+  bar.textContent = '';
+  const name = f.kind === 'scene' ? sceneName(f.id) : personName(f.id);
+  bar.append(el('span', '', k ? `${plural(k, 'step')} ${f.kind === 'scene' ? 'in' : 'with'} ${name}` : `No steps ${f.kind === 'scene' ? 'in' : 'with'} ${name} in this chart`));
+  if (f.kind === 'scene' && CS && SCENE_NAME[f.id]) { const b = el('button', 'btn small', `Show ${name} in Plastico`); b.type = 'button'; b.onclick = () => { flushNow(c.id); CS.navigate('plastico', { scene: f.id }); }; bar.append(b); }
+  const x = el('button', 'btn small icon'); x.type = 'button'; x.setAttribute('aria-label', 'Show every step'); x.title = 'Show every step';
+  x.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg>';
+  x.onclick = () => setFocus(null); bar.append(x);
+  show(bar, true);
+}
+
+/* ------------------------------------------------------------------ pick lists */
+// Where and Who pick from the world. The page draws its own list: the desktop app's window doesn't show the
+// browser's suggestion lists, and those hide every choice that doesn't match what is already in the box.
+const PICK = { open: null };
+function closePick(focusBack) {
+  const p = PICK.open; if (!p) return; PICK.open = null;
+  p.pop.remove(); p.btn.setAttribute('aria-expanded', 'false');
+  window.removeEventListener('resize', p.onWin); document.removeEventListener('scroll', p.onWin, true); document.removeEventListener('pointerdown', p.onDown, true);
+  if (focusBack && p.btn.isConnected) p.btn.focus();
+}
+/**
+ * A button showing the current choice; it opens a search box over groups of choices.
+ * o: {id, value, label, placeholder, search, disabled, groups: () => [{head, note, items: [{value, label, sub, tag, hint, depth}]}],
+ *     pick(value), add(text) -> {label, run} | null}
+ */
+function picker(o) {
+  const b = el('button', 'pick'); b.type = 'button'; b.id = o.id; b.disabled = !!o.disabled;
+  b.setAttribute('aria-haspopup', 'listbox'); b.setAttribute('aria-expanded', 'false');
+  b.append(el('span', 'pick-text' + (o.label ? '' : ' ph'), o.label || o.placeholder));
+  b.insertAdjacentHTML('beforeend', '<svg class="pick-chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  if (o.title) b.title = o.title;
+  b.onclick = () => (PICK.open && PICK.open.btn === b ? closePick(true) : openPick(b, o));
+  b.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); openPick(b, o); }
+    else if (ev.key.length === 1 && ev.key !== ' ' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); openPick(b, o, ev.key); }
+  });
+  return b;
+}
+function openPick(btn, o, typed = '') {
+  closePick(false);
+  const pop = el('div', 'pick-pop'); pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', o.placeholder);
+  const q = el('input', 'pick-q'); q.type = 'text'; q.placeholder = o.search || 'Search'; q.autocomplete = 'off'; q.spellcheck = false; q.value = typed;
+  const list = el('div', 'pick-list'); list.id = btn.id + '-list'; list.setAttribute('role', 'listbox');
+  q.setAttribute('role', 'combobox'); q.setAttribute('aria-expanded', 'true'); q.setAttribute('aria-controls', list.id); q.setAttribute('aria-autocomplete', 'list');
+  pop.append(q, list); document.body.append(pop);
+  let opts = [], active = -1;
+  const setActive = (i, scroll) => {
+    if (opts[active]) opts[active].el.classList.remove('on');
+    active = i; const a = opts[i];
+    if (a) { a.el.classList.add('on'); q.setAttribute('aria-activedescendant', a.el.id); if (scroll) a.el.scrollIntoView({ block: 'nearest' }); } else q.removeAttribute('aria-activedescendant');
+  };
+  const choose = (i) => { const a = opts[i]; if (!a) return; const id = btn.id; closePick(false); a.run(); const nb = document.getElementById(id); if (nb) nb.focus(); };
+  const option = (cls, run) => {
+    const e = el('div', 'pick-opt' + (cls ? ' ' + cls : '')); e.setAttribute('role', 'option'); e.id = `${list.id}-${opts.length}`;
+    const i = opts.length; opts.push({ el: e, run });
+    e.addEventListener('pointerdown', (ev) => ev.preventDefault());   // the search box keeps the focus
+    e.onclick = () => choose(i); e.onpointermove = () => { if (active !== i) setActive(i, false); };
+    list.append(e); return e;
+  };
+  function draw() {
+    list.textContent = ''; opts = []; active = -1;
+    const raw = q.value.trim(), s = raw.toLowerCase();
+    let exact = false, sel = -1;
+    for (const g of o.groups()) {
+      const items = g.items.filter((it) => !s || `${it.label} ${it.sub || ''} ${it.value}`.toLowerCase().includes(s));
+      if (!items.length) continue;
+      if (g.head) { const h = el('div', 'pick-head'); h.setAttribute('role', 'presentation'); h.append(el('span', '', g.head)); if (g.note) h.append(el('em', '', g.note)); list.append(h); }
+      for (const it of items) {
+        if (s && (it.label.toLowerCase() === s || it.value.toLowerCase() === s)) exact = true;
+        const e = option('', () => o.pick(it.value));
+        if (it.depth) e.style.paddingLeft = `${10 + it.depth * 16}px`;
+        if (it.value === o.value) { e.setAttribute('aria-selected', 'true'); sel = opts.length - 1; }
+        const main = el('span', 'po-main'); main.append(el('span', 'po-label', it.label)); if (it.sub) main.append(el('span', 'po-sub', it.sub));
+        e.append(main);
+        if (it.tag) e.append(el('span', 'po-tag', it.tag));
+        if (it.hint) e.append(el('span', 'po-hint', it.hint));
+      }
+    }
+    const add = raw && !exact && o.add ? o.add(raw) : null;
+    if (add) { const e = option('add', add.run); e.append(el('span', 'po-plus', '+'), el('span', 'po-label', add.label)); }
+    if (!opts.length) list.append(el('div', 'pick-none', raw ? `Nothing called “${raw}”.` : 'Nothing to pick yet.'));
+    setActive(s ? 0 : sel >= 0 ? sel : 0, true);
+  }
+  const place = () => {
+    const r = btn.getBoundingClientRect(), w = Math.min(Math.max(r.width, 300), innerWidth - 16);
+    const below = innerHeight - r.bottom - 10, above = r.top - 10, up = below < 240 && above > below;
+    pop.style.width = w + 'px'; pop.style.left = clamp(r.left, 8, innerWidth - w - 8) + 'px';
+    pop.style.maxHeight = Math.min(380, up ? above : below) + 'px';
+    if (up) { pop.style.top = ''; pop.style.bottom = (innerHeight - r.top + 4) + 'px'; } else { pop.style.bottom = ''; pop.style.top = (r.bottom + 4) + 'px'; }
+  };
+  q.addEventListener('input', draw);
+  q.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); setActive(Math.min(opts.length - 1, active + 1), true); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); setActive(Math.max(0, active - 1), true); }
+    else if (ev.key === 'Home' && !q.value) { ev.preventDefault(); setActive(0, true); }
+    else if (ev.key === 'End' && !q.value) { ev.preventDefault(); setActive(opts.length - 1, true); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); choose(active); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closePick(true); }
+    else if (ev.key === 'Tab') closePick(false);
+  });
+  const onWin = (ev) => { if (ev && ev.type === 'scroll' && pop.contains(ev.target)) return; closePick(false); };
+  const onDown = (ev) => { if (!pop.contains(ev.target) && !btn.contains(ev.target)) closePick(false); };
+  PICK.open = { btn, pop, onWin, onDown };
+  btn.setAttribute('aria-expanded', 'true');
+  window.addEventListener('resize', onWin); document.addEventListener('scroll', onWin, true); document.addEventListener('pointerdown', onDown, true);
+  place(); draw(); q.focus(); if (typed) q.setSelectionRange(typed.length, typed.length);
+}
+/** A person's name, and what follows its comma: "Elda, the edicola's vendor" -> ["Elda", "the edicola's vendor"]. */
+function nameParts(id) {
+  const full = (PEOPLE.find((p) => p[0] === id) || [id, id])[1]; const i = full.indexOf(',');
+  return i > 0 ? [full.slice(0, i).trim(), full.slice(i + 1).trim()] : [full, ''];
+}
+/** Where's choices: no scene, then the scenes of the chart's act (the scenes inside a scene under it), then other acts. */
+function whereGroups(c, n) {
+  const per = new Map(); for (const q of c.nodes) if (q.scene && isStep(q)) per.set(q.scene, (per.get(q.scene) || 0) + 1);
+  const item = (id, depth) => {
+    const s = SCENE_INFO.get(id), k = per.get(id) || 0;
+    return { value: id, label: s.name, depth, tag: s.inGame ? '' : s.status === 'idea' ? 'idea' : 'planned', hint: k ? plural(k, 'step') : '' };
+  };
+  const groups = [{ items: [{ value: '', label: 'Any scene', hint: 'not tied to a place' }] }];
+  const acts = [c.act, ...ACTS.map((a) => a[0]).filter((a) => a !== c.act)];
+  for (const a of acts) {
+    const ids = SCENE_ORDER.filter(([id]) => sceneAct(id) === String(a));
+    if (ids.length) groups.push({ head: actLabel(a), note: a === c.act ? 'this chart' : '', items: ids.map(([id, d]) => item(id, d)) });
+  }
+  const loose = SCENE_ORDER.filter(([id]) => !acts.some((a) => sceneAct(id) === String(a)));
+  if (loose.length) groups.push({ head: 'Other scenes', items: loose.map(([id, d]) => item(id, d)) });
+  const missing = [...new Set(c.nodes.map((q) => q.scene).filter((v) => v && !SCENE_NAME[v]))];
+  if (missing.length) groups.push({ head: 'Not in the world yet', items: missing.map((v) => ({ value: v, label: v, tag: 'missing' })) });
+  return groups;
+}
+/** Who's choices: nobody, the player, the people the world puts in the step's scene then, then everyone else. */
+function whoGroups(c, n) {
+  const groups = [{ items: [{ value: '', label: 'Nobody' }, { value: 'player', label: 'The player' }] }];
+  const others = PEOPLE.map((p) => p[0]).filter((id) => id !== 'player');
+  const here = SCENE_NAME[n.scene] && PEOPLE_AT ? peopleIn(n.scene, n.when) : new Set();
+  const item = (id, hint) => { const [label, sub] = nameParts(id); return { value: id, label, sub, hint }; };
+  if (here.size) {
+    groups.push({ head: `In ${sceneName(n.scene)}${n.when ? ` at ${n.when}` : ''}`, items: others.filter((id) => here.has(id)).map((id) => {
+      const ts = n.when ? [] : timesIn(n.scene, id);
+      return item(id, ts.length && ts.length < PHASES.length ? ts.join(', ') : '');
+    }) });
+  }
+  groups.push({ head: here.size ? 'Everyone else' : 'People', items: others.filter((id) => !here.has(id)).map((id) => {
+    if (!PEOPLE_AT) return item(id, '');
+    const w = whereIs(id, n.when);
+    return item(id, w.length ? `${n.when ? `${n.when}: ` : ''}${sceneName(w[0])}${w.length > 1 ? ` +${w.length - 1}` : ''}` : 'in no scene yet');
+  }) });
+  const missing = [...new Set(c.nodes.map((q) => q.who).filter((v) => v && v !== 'player' && !PERSON_NAME[v]))];
+  if (missing.length) groups.push({ head: 'Not in the world yet', items: missing.map((v) => ({ value: v, label: v, tag: 'missing' })) });
+  return groups;
 }
 
 function nodePanel(box, c, n) {
@@ -994,25 +1382,105 @@ function nodePanel(box, c, n) {
 
   const r = el('div', 'row2');
   const linkRow = el('div', 'linkrow');
-  const sc = input('f-scene', n.scene, 'Any', (v) => { beginEdit('scene:' + n.id); n.scene = v.trim(); scheduleSave(); refreshNode(n); drawLink(); }); sc.setAttribute('list', 'dl-scenes');
-  const wh = input('f-who', n.who, 'Nobody', (v) => { beginEdit('who:' + n.id); n.who = v.trim(); scheduleSave(); refreshNode(n); }); wh.setAttribute('list', 'dl-people');
+  let sc, wh;
+  if (SCENES.length) {   // the world's lists are known: pick from them
+    const setScene = (v) => { if (v === n.scene) return; pushUndo(); n.scene = v; scheduleSave(); render(); };
+    const setWho = (v) => { if (v === n.who) return; pushUndo(); n.who = v; scheduleSave(); render(); };
+    sc = picker({ id: 'f-scene', value: n.scene, label: n.scene ? sceneName(n.scene) : '', placeholder: 'Any scene', search: 'Search the scenes, or type a new one',
+      disabled: ro || !!S.play, groups: () => whereGroups(c, n), pick: setScene,
+      add: ro ? null : CS ? (v) => ({ label: `Add the scene “${niceNew(v)}” to act ${c.act}`, run: () => addNew('scene', v) }) : (v) => ({ label: `Use “${v}” (not in the world)`, run: () => setScene(v) }) });
+    wh = picker({ id: 'f-who', value: n.who, label: n.who ? personName(n.who) : '', placeholder: 'Nobody', search: 'Search the people, or type a new one',
+      disabled: ro || !!S.play, groups: () => whoGroups(c, n), pick: setWho,
+      add: ro ? null : CS ? (v) => ({ label: `Add “${niceNew(v)}” to the people${SCENE_NAME[n.scene] ? `, in ${sceneName(n.scene)}` : ''}`, run: () => addNew('person', v) }) : (v) => ({ label: `Use “${v}” (not in the world)`, run: () => setWho(v) }) });
+  } else {
+    sc = input('f-scene', pickLabel(SCENES, n.scene), 'Any', (v) => { beginEdit('scene:' + n.id); n.scene = pickId(SCENES, v); scheduleSave(); refreshNode(n); drawLink(); }); sc.setAttribute('list', 'dl-scenes');
+    wh = input('f-who', pickLabel(PEOPLE, n.who), 'Nobody', (v) => { beginEdit('who:' + n.id); n.who = pickId(PEOPLE, v); scheduleSave(); refreshNode(n); drawLink(); }); wh.setAttribute('list', 'dl-people');
+  }
   r.append(field('Where', sc), field('Who', wh)); box.append(r);
-  // the step's scene in the world (Plastico): a way there, or a warning that the world doesn't have it
+  // A new scene (in the chart's act) or person (in the step's scene, at its time) typed in Where or Who
+  async function addNew(kind, typed) {
+    const name = niceNew(typed);
+    try {
+      if (kind === 'scene') {
+        const id = await CS.call('world.add_scene', name, String(c.act));
+        if (!SCENE_NAME[id]) { SCENES = SCENES.concat([[id, name]]); SCENE_NAME[id] = name; SCENE_INFO.set(id, { id, name, act: String(c.act), parent: '', kind: '', inGame: false, status: 'idea' }); SCENE_ORDER.push([id, 0]); }
+        pushUndo(); n.scene = id;
+      } else {
+        const id = await CS.call('world.add_person', name);
+        if (!PERSON_NAME[id]) { PEOPLE = PEOPLE.concat([[id, name]]); PERSON_NAME[id] = name.split(',')[0]; }
+        if (SCENE_NAME[n.scene]) await placeHere(id);
+        pushUndo(); n.who = id;
+      }
+      fillLists(); scheduleSave(); render();
+    } catch (e) { toast(`Couldn’t add ${name} to the world: ${e.message}`); }
+  }
+  // put a person in this step's scene at its time (no time: at every time), in Plastico's People here
+  const placeHere = (who) => placePerson(who, n.scene, PHASES.includes(n.when) ? n.when : '');
+  // In Cassetto, something the world doesn't have can be added to it from here: the steps of this chart that
+  // name it then point at the new scene or person.
+  async function addToWorld(kind, value) {
+    const name = niceNew(value);
+    try {
+      const id = kind === 'scene' ? await CS.call('world.add_scene', name, String(c.act)) : await CS.call('world.add_person', name);
+      pushUndo();
+      for (const q of c.nodes) { if (kind === 'scene' && q.scene === value) q.scene = id; if (kind === 'person' && q.who === value) q.who = id; }
+      if (kind === 'person') {   // put them where this chart's steps have them: that scene, at the step's time (any time: all)
+        const where = new Map();
+        for (const q of c.nodes) if (q.who === id && SCENE_NAME[q.scene] && q.kind !== 'goal' && q.kind !== 'setup') {
+          if (!where.has(q.scene)) where.set(q.scene, new Set());
+          if (q.when && PHASES.includes(q.when)) where.get(q.scene).add(q.when); else where.get(q.scene).add('*');
+        }
+        for (const [sid, phs] of where) await CS.call('world.place_person', id, sid, phs.has('*') ? null : [...phs]);
+      }
+      if (kind === 'scene') { if (!SCENES.some(([x]) => x === id)) SCENES = SCENES.concat([[id, name]]); SCENE_NAME[id] = SCENE_NAME[id] || name; }
+      else { if (!PEOPLE.some(([x]) => x === id)) PEOPLE = PEOPLE.concat([[id, name]]); PERSON_NAME[id] = PERSON_NAME[id] || name.split(',')[0]; }
+      fillLists(); scheduleSave(); render();
+    } catch (e) { toast(`Couldn’t add ${name} to the world: ${e.message}`); }
+  }
+  // the step's scene and person in the world (Plastico): a way there, or what the world is missing
   function drawLink() {
-    linkRow.textContent = ''; linkRow.hidden = !(n.scene && SCENES.length);
-    if (linkRow.hidden) return;
-    if (SCENE_NAME[n.scene]) {
-      if (!CS) { linkRow.hidden = true; return; }
-      const b = el('button', 'btn small', `Show ${sceneName(n.scene)} in Plastico`); b.type = 'button';
-      b.onclick = () => { flushNow(c.id); CS.navigate('plastico', { scene: n.scene }); }; linkRow.append(b);
-    } else linkRow.append(el('span', 'warn', `No scene “${n.scene}” in the world yet: ${CS ? 'add it in Plastico' : 'add it to the world'}, or pick one it has.`));
+    linkRow.textContent = '';
+    const known = SCENES.length > 0;
+    if (n.scene && known) {
+      if (SCENE_NAME[n.scene]) {
+        if (CS) { const b = el('button', 'btn small', `Show ${sceneName(n.scene)} in Plastico`); b.type = 'button'; b.onclick = () => { flushNow(c.id); CS.navigate('plastico', { scene: n.scene }); }; linkRow.append(b); }
+      } else {
+        linkRow.append(el('span', 'warn', `No scene “${n.scene}” in the world yet.`));
+        if (CS && !S.readOnly) { const b = el('button', 'btn small', `Add “${niceNew(n.scene)}” to the world`); b.type = 'button'; b.id = 'f-add-scene'; b.onclick = () => addToWorld('scene', n.scene); linkRow.append(b); }
+      }
+    }
+    if (n.who && known && n.who !== 'player' && !PERSON_NAME[n.who]) {
+      linkRow.append(el('span', 'warn', `Nobody called “${n.who}” in the world yet.`));
+      if (CS && !S.readOnly) { const b = el('button', 'btn small', `Add “${niceNew(n.who)}” to the people`); b.type = 'button'; b.id = 'f-add-person'; b.onclick = () => addToWorld('person', n.who); linkRow.append(b); }
+    } else if (n.who && n.who !== 'player' && PERSON_NAME[n.who] && SCENE_NAME[n.scene] && PEOPLE_AT && isStep(n)) {
+      const who = personName(n.who), when = PHASES.includes(n.when) ? n.when : '';
+      if (!peopleIn(n.scene, when).has(n.who)) {
+        const why = whereInstead(n.who, n.scene, when, c.act);
+        const sp = el('span', 'warn', `The world doesn’t put ${who} in ${sceneName(n.scene)}${when ? ` at ${when}` : ' at any time'}.${why ? ' ' + why : ''}`); sp.id = 'f-not-there'; linkRow.append(sp);
+        if (!S.readOnly) moveTargets(n.who, n.scene, when, c.act).forEach((sc, i) => {
+          const m = el('button', 'btn small', `Move the step to ${sceneName(sc)}`); m.type = 'button'; if (!i) m.id = 'f-move-there';
+          m.title = `Where the world has ${who}${when ? ` at ${when}` : ''}`;
+          m.onclick = () => moveSteps(c, [n.id], sc); linkRow.append(m);
+        });
+        if (CS && !S.readOnly) {
+          const b = el('button', 'btn small', `Put ${who} in ${sceneName(n.scene)}${when ? ` at ${when}` : ''}`); b.type = 'button'; b.id = 'f-put-there';
+          b.title = `Adds ${who} to People here in ${sceneName(n.scene)} in Plastico${when ? ` at ${when}` : ', at every time of day'}`;
+          b.onclick = async () => { b.disabled = true; try { await placePerson(n.who, n.scene, when); render(); } catch (e) { b.disabled = false; toast(`Couldn’t put ${who} there: ${e.message}`); } };
+          linkRow.append(b);
+        }
+      } else if (!when) {   // any time, but the world has them here only at some times: say when
+        const ts = timesIn(n.scene, n.who);
+        if (ts.length && ts.length < PHASES.length) { const sp = el('span', 'note', `${who} is in ${sceneName(n.scene)} only at ${andList(ts)}, so this step can happen only then.`); sp.id = 'f-only-then'; linkRow.append(sp); }
+      }
+    }
+    linkRow.hidden = !linkRow.childNodes.length;
   }
   drawLink(); box.append(linkRow);
 
   const r2 = el('div', 'row2');
   const when = el('select'); when.id = 'f-when'; when.disabled = ro;
   for (const p of [''].concat(PHASES)) { const o = el('option', '', p ? p[0].toUpperCase() + p.slice(1) : (n.kind === 'phase' ? 'Choose…' : 'Any time')); o.value = p; if (p === n.when) o.selected = true; when.append(o); }
-  when.onchange = () => { pushUndo(); n.when = when.value; scheduleSave(); refreshNode(n); };
+  when.onchange = () => { pushUndo(); n.when = when.value; scheduleSave(); refreshNode(n); drawLink(); renderSide(); };
   r2.append(field(n.kind === 'phase' ? 'Time of day' : 'Only at', when));
   const st = el('select'); st.id = 'f-status'; st.disabled = ro;
   for (const [v, l] of STATUSES) { const o = el('option', '', l); o.value = v; if (v === n.status) o.selected = true; st.append(o); }
@@ -1024,6 +1492,19 @@ function nodePanel(box, c, n) {
       : n.kind === 'combo' ? 'One .tres in res://items/, and the pair in ItemDB’s COMBINATIONS.'
       : n.kind === 'setup' ? 'Saved in GameState.flags. Leave it empty if nothing needs checking.'
       : 'Saved in GameState.flags.'));
+  // the locked ways in the world this step's item or flag opens (Plastico's locks)
+  const unlocks = n.gid ? LOCKS.filter((l) => l.needs === n.gid) : [];
+  if (unlocks.length) {
+    const lr = el('div', 'linkrow opens'); lr.id = 'f-opens';
+    lr.append(el('span', 'help', `Opens ${unlocks.length === 1 ? 'a locked way' : `${unlocks.length} locked ways`} in the world:`));
+    for (const l of unlocks) {
+      const b = el('button', 'btn small', `${sceneName(l.from)} → ${sceneName(l.to)}`); b.type = 'button';
+      b.title = CS ? `Show the way from ${sceneName(l.from)} to ${sceneName(l.to)} in Plastico` : '';
+      b.disabled = !CS; b.onclick = () => { flushNow(c.id); CS.navigate('plastico', { scene: l.from }); };
+      lr.append(b);
+    }
+    box.append(lr);
+  }
   box.append(field('Notes', textarea('f-notes', n.notes, 'Hints, the lines that point to it, how it fails', (v) => { beginEdit('notes:' + n.id); n.notes = v; scheduleSave(); })));
 
   // needs
@@ -1128,6 +1609,7 @@ function playPanel(box, c) {
 /* ------------------------------------------------------------------ chrome */
 function updateChrome() {
   const c = cur(), app = $('#app');
+  renderFocus();
   $('#cur-name').textContent = c ? c.name || 'Untitled chart' : '';
   const editable = !!c && !S.readOnly && !S.play;
   $('#btn-add').disabled = !editable;
@@ -1409,7 +1891,7 @@ function applyLayout(c, target, routes, H, opts) {
     S.layoutPos = new Map(c.nodes.filter((n) => H.has(n.id)).map((n) => [n.id, { x: n.x, y: n.y, h: H.get(n.id) }]));
     S.view = v1; applyView();
     renderCanvas();
-    if (moved) scheduleSave(undefined, true);
+    if (moved && !c.fresh) scheduleSave(undefined, true);
   };
   cancelAnimationFrame(S.animFrame);
   const still = !moved && v1.x === v0.x && v1.y === v0.y && v1.k === v0.k;
@@ -1611,7 +2093,7 @@ $('#btn-undo').onclick = undo;
 $('#btn-redo').onclick = redo;
 $('#btn-play').onclick = () => (S.play ? stopPlay() : startPlay());
 $('#btn-info').onclick = () => { S.sheet = !S.sheet; if (S.sheet) S.sel = null; renderCanvas(); renderInspector(); updateChrome(); };
-$('#btn-new').onclick = newChart;
+$('#btn-new').onclick = () => newChart();
 $('#btn-drawer').onclick = () => { S.drawer = !S.drawer; updateChrome(); };
 $('#scrim').onclick = () => { S.drawer = false; updateChrome(); };
 $('#z-in').onclick = () => zoomCenter(1.2);
@@ -1632,14 +2114,36 @@ document.addEventListener('keydown', (e) => {
   }
   const t = e.target;
   const typing = t && t.closest && t.closest('input, textarea, select, [contenteditable]');
-  const mod = e.ctrlKey || e.metaKey;
-  if (typing) return;
-  if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
-  if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
-  if (mod) return;
-  if ((e.key === 'Delete' || e.key === 'Backspace') && S.sel && !S.play && !S.readOnly) { e.preventDefault(); deleteSelection(); }
-  else if (e.key === 'f' || e.key === 'F') fitView();
+  if (typing || e.defaultPrevented || !$('#modal').hasAttribute('hidden')) return;
+  // In Cassetto the keys are the suite's, which the person can change in its settings (CassettoKeys).
+  // On its own, the page keeps the keys it always had.
+  const id = window.CassettoKeys ? window.CassettoKeys.find(e, 'puzzles') : defaultAction(e);
+  const run = id && KEY_ACTIONS[id];
+  if (!run) return;
+  if (run() !== false) e.preventDefault();
 });
+function defaultAction(e) {
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && !e.altKey && (e.key === 'z' || e.key === 'Z')) return e.shiftKey ? 'puzzles.redo' : 'puzzles.undo';
+  if (mod && !e.altKey && (e.key === 'y' || e.key === 'Y')) return 'puzzles.redo';
+  if (mod || e.altKey) return null;
+  if (e.key === 'Delete' || e.key === 'Backspace') return 'puzzles.delete';
+  if (e.key === 'f' || e.key === 'F') return 'puzzles.fit';
+  return null;
+}
+const KEY_ACTIONS = {
+  'puzzles.undo': () => undo(),
+  'puzzles.redo': () => redo(),
+  'puzzles.delete': () => { if (!S.sel || S.play || S.readOnly) return false; deleteSelection(); },
+  'puzzles.fit': () => fitView(),
+  'puzzles.zoomIn': () => zoomCenter(1.2),
+  'puzzles.zoomOut': () => zoomCenter(1 / 1.2),
+  'puzzles.add': () => { if (!cur() || S.play || S.readOnly) return false; const b = $('#btn-add'); b.focus({ preventScroll: true }); toggleMenu(b, $('#menu-add')); },
+  'puzzles.arrange': () => { if (!cur() || S.play || S.readOnly) return false; toggleAuto(); },
+  'puzzles.new': () => { if (S.readOnly) return false; newChart(); },
+  'puzzles.play': () => { if (!cur()) return false; if (S.play) stopPlay(); else startPlay(); },
+  'puzzles.info': () => { if (!cur()) return false; S.sheet = !S.sheet; if (S.sheet) S.sel = null; renderCanvas(); renderInspector(); updateChrome(); },
+};
 matchMedia('(max-width: 999px)').addEventListener('change', () => { if (!isDrawer()) S.drawer = false; updateChrome(); });
 
 /* ------------------------------------------------------------------ export */
@@ -1678,10 +2182,17 @@ function copyText(text, okMsg, title) {
 }
 
 /* ------------------------------------------------------------------ charts */
-function openChart(id) {
-  if (S.currentId && S.currentId !== id) { flushNow(S.currentId); S.views.set(S.currentId, { ...S.view }); }
-  S.currentId = id; S.sel = null; S.play = null; S.sheet = false; S.lastEdit = null;
-  lsSet(LS_LAST, id);
+function openChart(id, opts = {}) {
+  if (S.currentId && S.currentId !== id) {
+    const prev = S.charts.get(S.currentId);
+    if (prev && prev.fresh && !S.dirty.has(prev.id) && !S.inflight.has(prev.id)) { S.charts.delete(prev.id); S.views.delete(prev.id); }   // untouched: never saved, gone
+    else { flushNow(S.currentId); S.views.set(S.currentId, { ...S.view }); }
+  }
+  S.currentId = id; S.sel = null; S.play = null; S.sheet = false; S.lastEdit = null; S.focus = null;
+  const c = S.charts.get(id);
+  lsSet(LS_LAST, id); if (c) lsSet(`${LS_LAST}:act:${c.act}`, id);
+  // a chart chosen here (or from the tree, or from Plastico) shows its act in the other modules too
+  if (opts.announce && c && CS && CS.setAct) CS.setAct(String(c.act), true);
   if (CS && CS.selected) CS.selected({ module: 'puzzles', chart: id });
   renderCanvas();
   const v = S.views.get(id);
@@ -1689,18 +2200,49 @@ function openChart(id) {
   requestLayout({ now: true, fit: !v, animate: false });
   renderSide(); renderInspector(); updateChrome();
 }
-function newChart() {
-  if (S.readOnly) return;
+/** The act a new chart goes in: the open chart's, else the act on screen in the suite, else act 1. */
+function actNow() {
+  const c = cur(); if (c) return c.act;
+  const a = Number(CS && CS.act ? CS.act() : NaN);
+  return Number.isInteger(a) && a >= 1 && a <= 99 ? a : 1;
+}
+function blankChart(act) {
   let id;
   try { id = S.db ? S.db.collection('charts').doc().id : null; } catch (e) { id = null; }
   if (!id) { id = 'local-' + Math.random().toString(36).slice(2, 10); S.localOnly.add(id); }
-  const goal = blankNode('goal', 0, 0);
-  const c = { id, name: 'Untitled chart', act: 1, notes: '', nodes: [goal], edges: [], auto: true, createdAt: Date.now(), updatedAt: Date.now(), rev: '' };
-  S.charts.set(id, c);
+  // the first chart of an act is named after it ("Act 2"); the others start untitled
+  const first = ![...S.charts.values()].some((x) => x.act === act) && ![...S.charts.values()].some((x) => x.name === `Act ${act}`);
+  return { id, name: first ? `Act ${act}` : 'Untitled chart', act, notes: '', nodes: [blankNode('goal', 0, 0)], edges: [], auto: true, createdAt: Date.now(), updatedAt: Date.now(), rev: '' };
+}
+function newChart(act) {
+  if (S.readOnly) return;
+  const c = blankChart(Number.isInteger(act) ? act : actNow());
+  S.charts.set(c.id, c);
   S.drawer = false;
-  openChart(id);
-  S.sel = { type: 'node', id: goal.id };
+  openChart(c.id, { announce: true });
+  S.sel = { type: 'node', id: c.nodes[0].id };
   scheduleSave(0); render(); focusTitle();
+}
+/** A fresh chart for an act with none yet, opened by following the act on screen: it is saved with its
+ * first change, and gone if another chart is opened before that. */
+function freshChart(act) {
+  const c = blankChart(act);
+  c.fresh = true; c.updatedAt = 0;   // no updatedAt: the charts read back from the store don't drop it
+  S.charts.set(c.id, c);
+  openChart(c.id);
+}
+/** The act on screen in the suite changed (Plastico shows another act): open that act's chart, the one
+ * last opened in it or the latest changed, or a fresh one when it has none. False: nothing to show. */
+function followAct(a) {
+  const n = Number(a);
+  if (!Number.isInteger(n) || n < 1 || n > 99) return false;
+  const c = cur(); if (c && c.act === n) return true;
+  const last = lsGet(`${LS_LAST}:act:${n}`);
+  const pick = last && S.charts.has(last) && S.charts.get(last).act === n ? last
+    : ([...S.charts.values()].filter((x) => x.act === n).sort((x, y) => y.updatedAt - x.updatedAt)[0] || {}).id;
+  if (pick) { openChart(pick); return true; }
+  if (S.readOnly) return false;
+  freshChart(n); return true;
 }
 function duplicateChart(src) {
   if (S.readOnly) return;
@@ -1716,11 +2258,13 @@ async function deleteChart(id) {
   const c = S.charts.get(id); if (!c) return;
   clearTimeout(S.timers.get(id)); S.timers.delete(id); S.dirty.delete(id);
   S.charts.delete(id); S.undo.delete(id); S.redo.delete(id); S.views.delete(id);
-  const next = [...S.charts.values()].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  // next: the latest chart of the same act, else the latest of any (and the other modules show its act)
+  const byDate = [...S.charts.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  const next = byDate.find((x) => x.act === c.act) || byDate[0];
   S.currentId = null;
-  if (next) openChart(next.id); else render();
+  if (next) openChart(next.id, { announce: next.act !== c.act }); else render();
   toast(`Deleted “${c.name}”.`);
-  if (S.db && !S.localOnly.has(id)) {
+  if (S.db && !S.localOnly.has(id) && !c.fresh) {
     try { await S.db.collection('charts').doc(id).delete(); }
     catch (e) { S.saveErr = 'The chart couldn’t be deleted from the saved copy. Reload to see it again.'; updateStatus(); }
   }
@@ -1746,7 +2290,7 @@ async function flush(id, retried) {
   if (!S.db || S.localOnly.has(id)) { S.dirty.delete(id); updateStatus(); return; }
   if (S.inflight.has(id)) { S.timers.set(id, setTimeout(() => flush(id), 250)); return; }
   S.dirty.delete(id); S.inflight.add(id); updateStatus();
-  c.updatedAt = Date.now(); c.rev = clientId + ':' + (++revCounter);
+  c.updatedAt = Date.now(); c.rev = clientId + ':' + (++revCounter); c.fresh = false;
   const body = serialize(c);
   let err = null;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -1801,6 +2345,8 @@ function onCharts(snap) {
     }
   }
   if (!S.currentId || !S.charts.has(S.currentId)) {
+    S.currentId = null;
+    if (CS && CS.act && followAct(CS.act())) return;
     const last = lsGet(LS_LAST);
     const pick = (last && S.charts.has(last)) ? last : ([...S.charts.values()].sort((a, b) => b.updatedAt - a.updatedAt)[0] || {}).id;
     S.currentId = null;
@@ -1815,7 +2361,7 @@ function onCharts(snap) {
     if (S.play) S.play = null;
   }
   const active = document.activeElement;
-  const typing = active && $('#insp').contains(active) && active.matches('input, textarea, select');
+  const typing = active && (($('#insp').contains(active) && active.matches('input, textarea, select')) || !!active.closest('.pick-pop'));
   renderSide(); renderCanvas(); if (!typing) renderInspector(); updateChrome();
   if (currentChanged) requestLayout();
 }
@@ -1832,9 +2378,9 @@ async function init() {
   db.collection('meta').limit(10).onSnapshot((snap) => {
     const d = (snap.docs || []).find((x) => x.exists && x.id === 'world');
     if (!d || !applyWorld(d.data())) return;
-    fillLists(); renderCanvas();
+    fillLists(); renderSide(); renderCanvas();
     const a = document.activeElement;
-    if (!(a && $('#insp').contains(a))) renderInspector();
+    if (!(a && ($('#insp').contains(a) || a.closest('.pick-pop')))) renderInspector();
   }, () => { /* keep the built-in lists */ });
   db.collection('charts').limit(500).onSnapshot(onCharts, (err) => {
     clearTimeout(S.loadTimer); S.loaded = true;
@@ -1852,12 +2398,19 @@ if (CS) {
   document.documentElement.classList.add('in-cassetto');   // the shell shows the save status
   $('#side-note').textContent = 'Arrows run from what a step needs to what it opens, through the sub goals, down to the end goal. Charts are saved in this Cassetto project; the scenes and people come from its world in Plastico.';
   const loaded = async () => { for (let i = 0; i < 100 && !S.loaded; i++) await new Promise((r) => setTimeout(r, 100)); };
+  // Plastico (or the tree) shows another act: open that act's chart when this page is on screen
+  let wantAct = null;
+  const onScreen = () => { try { return !window.frameElement || !window.frameElement.hidden; } catch (e) { return true; } };
+  const applyWantedAct = () => { if (wantAct == null || !S.loaded) return; const a = wantAct; wantAct = null; if (a !== 'all') followAct(a); };
+  CS.on('act', (ev) => { wantAct = ev && ev.act; if (onScreen()) applyWantedAct(); });
+  CS.on('activate', () => setTimeout(applyWantedAct, 0));
   CS.register({
     flush: async () => {
       for (const id of [...S.dirty]) { clearTimeout(S.timers.get(id)); await flush(id); }
       for (let i = 0; i < 50 && S.inflight.size; i++) await new Promise((r) => setTimeout(r, 60));
     },
     navigate: async (t) => {
+      if (t && (t.chart || t.step)) wantAct = null;   // a chart asked for by name comes before the act on screen
       await loaded();
       if (!t) return;
       if (t.chart && !S.charts.has(t.chart)) {
@@ -1866,7 +2419,8 @@ if (CS) {
         for (let i = 0; i < 30 && !S.charts.has(t.chart); i++) await new Promise((r) => setTimeout(r, 100));
         if (!S.charts.has(t.chart)) { toast('That chart isn’t in this project any more.'); return; }
       }
-      if (t.chart && t.chart !== S.currentId) openChart(t.chart);
+      if (t.chart && t.chart !== S.currentId) openChart(t.chart, { announce: true });
+      if (t.scene && !t.step && cur() && cur().nodes.some((n) => n.scene === t.scene)) { S.focus = null; setFocus('scene', t.scene); }
       if (t.step) {
         const c = cur();
         if (c && c.nodes.some((n) => n.id === t.step)) { S.sel = { type: 'node', id: t.step }; S.play = null; render(); requestAnimationFrame(() => centerOn(t.step)); }

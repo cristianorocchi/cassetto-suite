@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -18,8 +19,9 @@ def test_new_project_has_manifest_and_module_folders(core, home):
     assert m["modules"] == {"plastico": {"version": 2}, "puzzles": {"version": 1}}
     assert (p.path / "plastico" / "world.json").is_file()
     assert (p.path / "puzzles" / "charts").is_dir()
-    assert {i["name"] for i in core.interfaces()} == {"world.catalog", "puzzles.charts", "puzzles.create_chart",
-                                                     "puzzles.rename_scene", "puzzles.references"}
+    assert {i["name"] for i in core.interfaces()} == {"world.catalog", "world.add_person", "world.add_scene", "world.place_person",
+                                                     "puzzles.charts", "puzzles.create_chart", "puzzles.rename_scene",
+                                                     "puzzles.references", "puzzles.add_to_world"}
 
 
 def test_refuses_newer_formats_and_damaged_files(core, home):
@@ -178,6 +180,19 @@ def test_linked_godot_game_is_read_and_reported(core, home):
     assert st["found"] and st["name"] == "Tiny Game"
     assert {c["state"] for c in st["capabilities"]} == {"works", "planned"}
     assert link.status(str(home / "gone"))["found"] is False and link.status("")["linked"] is False
+
+
+def test_new_project_lists_the_godot_games_found(home):
+    """"Start from a Godot game" offers the games in ~/Desktop/Projects and one folder down."""
+    from cassetto.integrations import godot as link
+    base = home / "Projects"
+    make_godot_game(base / "tiny")
+    make_godot_game(base / "jams" / "jam1")
+    (base / "notes").mkdir()
+    games = link.find_games(base)
+    assert [g["name"] for g in games] == ["Tiny Game", "Tiny Game"]
+    assert {Path(g["path"]).name for g in games} == {"tiny", "jam1"}
+    assert link.find_games(home / "nowhere") == []
 
 
 def test_rename_project_renames_the_world(core, home):
