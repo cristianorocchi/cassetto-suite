@@ -18,6 +18,10 @@
  *   cassetto.act()                    the act on screen in every module: "1", "2"... or "all"
  *   cassetto.setAct(act, follow)      this page shows another act: the others get an "act" event and
  *                                     follow it. `follow`: a chart opened, so "all" stays "all"
+ *   cassetto.state(group)             the state of that group of states on screen in every module ('' when
+ *                                     none was picked: the group's first state)
+ *   cassetto.setState(group, state)   this page puts the group in another state (in every act it holds for):
+ *                                     the others get a "state" event ({group, state}) and follow it
  *   cassetto.error(message)           a problem the person should see
  *   cassetto.settings(pane)           open the suite's settings ("keys" or "look"); inside the shell only
  */
@@ -64,6 +68,7 @@
       navigate(mod, target) { location.href = `/#module=${encodeURIComponent(mod)}${target ? '&target=' + encodeURIComponent(JSON.stringify(target)) : ''}`; },
       status() {}, selected() {}, error(msg) { console.warn(msg); },
       act: () => 'all', setAct() {},     // on its own there is no other module to keep in step
+      state: () => '', setState() {},
     };
   }
 })();

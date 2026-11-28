@@ -31,7 +31,7 @@ def _setup(core, home):
                        "lock": {"needs": "alley_key", "type": "item", "where": "", "note": ""}, "open": [], "via": "", "notes": "", "delete": False})
     pinned = core.call("puzzles.create_chart", "Planned for the alley")
     alley["charts"] = [pinned]
-    w["phases"] = ["day", "night"]
+    w["groups"] = [{"id": "time", "name": "Time of day", "acts": ["1"], "states": [{"id": "day", "name": "Day"}, {"id": "night", "name": "Night"}]}]
     _save_world(core, w)
     pz = core.modules["puzzles"]
     pz.import_charts({"chart": "The key", "act": 1, "steps": [
@@ -79,9 +79,9 @@ def test_the_catalog_says_who_is_where_and_new_charts_take_an_act(core, home):
 
 def test_who_is_where_follows_the_game_less_the_ones_taken_away():
     from cassetto.modules.plastico import PlasticoModule
-    w = {"phases": ["day", "night"], "scenes": [
-        {"id": "pub", "people": {"night": ["elda"]}, "away": {"day": ["grondo"]}},
-        {"id": "gone", "delete": True, "people": {"day": ["elda"]}}]}
+    w = {"acts": [{"id": "1"}], "groups": [{"id": "time", "acts": ["1"], "states": [{"id": "day", "name": "Day"}, {"id": "night", "name": "Night"}]}], "scenes": [
+        {"id": "pub", "act": "1", "people": {"night": ["elda"]}, "away": {"day": ["grondo"]}},
+        {"id": "gone", "act": "1", "delete": True, "people": {"day": ["elda"]}}]}
     game = {"pub": {"people": {"day": ["grondo", "tamira"], "night": ["grondo"]}}}
     assert PlasticoModule._people_at(w, game) == {"pub": {"day": ["tamira"], "night": ["grondo", "elda"]}}
 
@@ -92,12 +92,13 @@ def test_adding_to_the_world_what_a_step_names(core, home):
     assert {m["who"] for m in refs["missing_people"]} == {"stationmaster (new)"}
     assert {m["scene"] for m in refs["missing_scenes"]} == {"station"}
     r = core.call("puzzles.add_to_world", "person", "stationmaster (new)")
-    # they go where the steps have them: the alley, at any time (the station isn't in the world yet)
+    # they go where the steps have them: the alley, always (the step names no state; the station isn't in the world yet)
     assert r == {"id": "stationmaster", "name": "Stationmaster", "steps": 2, "charts": 1,
-                 "placed": [{"scene": "alley", "phases": ["day", "night"]}]}
+                 "placed": [{"scene": "alley", "phases": ["any"]}]}
     al = next(s for s in _world(core)["scenes"] if s["id"] == "alley")
-    assert al["people"] == {"day": ["stationmaster"], "night": ["stationmaster"]}
-    assert core.call("world.place_person", "stationmaster", "alley", ["day"]) == []      # already there
+    assert al["people"] == {"any": ["stationmaster"]}
+    assert core.call("world.catalog")["people_at"]["alley"] == {"day": ["stationmaster"], "night": ["stationmaster"]}
+    assert core.call("world.place_person", "stationmaster", "alley", ["day"]) == []      # already there, always
     assert core.call("world.place_person", "elda", "pub", ["night", "noon"]) == ["night"]  # unknown times are skipped
     with pytest.raises(ValueError):
         core.call("world.place_person", "nobody", "pub")
@@ -118,6 +119,57 @@ def test_adding_to_the_world_what_a_step_names(core, home):
     assert len([p for p in _world(core)["people"] if p["id"].startswith("stationmaster")]) == 1
     with pytest.raises(ValueError):
         core.call("world.add_person", "   ")
+
+
+def test_groups_of_states_hold_for_one_act_or_several(core, home):
+    """Groups of states: "Weather" holds for acts 1 and 2 (it rains on both), "Story" for act 2 only. One state
+    of each group is on at a time; who is where follows them all (in a group: any state listed; across groups: all)."""
+    _setup(core, home)
+    w = _world(core)
+    w["acts"].append({"id": "2", "name": "Downtown", "start": ""})
+    w["groups"] += [{"id": "weather", "name": "Weather", "acts": ["1", "2"], "states": [{"id": "sun", "name": "Sun"}, {"id": "", "name": "Rain"}]},
+                    {"id": "story", "name": "Story", "acts": ["2", "nope"], "states": [{"id": "", "name": "Before the fallout"},
+                                                                                     {"id": "", "name": "After the fallout"}, {"id": "sun", "name": "Dupe"}]}]
+    _save_world(core, w)
+    w = _world(core)
+    g = {x["id"]: x for x in w["groups"]}
+    assert [s["id"] for s in g["weather"]["states"]] == ["sun", "rain"]                                     # ids from the names
+    assert [s["id"] for s in g["story"]["states"]] == ["before_the_fallout", "after_the_fallout"]           # an id already used goes
+    assert g["story"]["acts"] == ["2"]                                                                       # acts the world has
+    cat = core.call("world.catalog")
+    assert cat["states"]["1"] == [["day", "Day"], ["night", "Night"], ["sun", "Sun"], ["rain", "Rain"]]
+    assert cat["states"]["2"] == [["sun", "Sun"], ["rain", "Rain"], ["before_the_fallout", "Before the fallout"], ["after_the_fallout", "After the fallout"]]
+    assert [x["id"] for x in cat["groups"]] == ["time", "weather", "story"]
+    # the wife is home before the fallout (any weather); the umbrella seller only when it rains, before the fallout
+    house = core.call("world.add_scene", "House", "2")
+    core.call("world.add_person", "Wife")
+    core.call("world.add_person", "Seller")
+    assert core.call("world.place_person", "wife", house, ["before_the_fallout", "day"]) == ["before_the_fallout"]   # "day" is act 1's
+    core.call("world.place_person", "seller", house, ["rain", "before_the_fallout"])
+    at = core.call("world.catalog")["people_at"][house]
+    assert at == {"sun": ["wife"], "rain": ["wife", "seller"], "before_the_fallout": ["wife", "seller"]}
+    from plastico import store
+    gof = store.group_of(_world(core))
+    seller = {"rain", "before_the_fallout"}
+    assert store.present(seller, {"weather": "rain", "story": "before_the_fallout"}, gof)
+    assert not store.present(seller, {"weather": "sun", "story": "before_the_fallout"}, gof)
+    assert not store.present(seller, {"weather": "rain", "story": "after_the_fallout"}, gof)
+    assert store.present({"any"}, {"weather": "sun"}, gof) and not store.present(set(), {}, gof)
+
+
+def test_a_chart_is_active_in_some_states_of_its_act(core, home):
+    core.create_project(home / "s", "S")
+    pz = core.modules["puzzles"]
+    cid = core.call("puzzles.create_chart", "The coffee machine", 1)
+    assert core.call("puzzles.charts")["charts"][0]["states"] == []            # new: active in every state
+    assert core.call("puzzles.set_states", cid, ["before", "before"]) == {"changed": True}
+    assert core.call("puzzles.charts")["charts"][0]["states"] == ["before"]
+    assert core.call("puzzles.set_states", cid, ["before"]) == {"changed": False}
+    with pytest.raises(ValueError):
+        core.call("puzzles.set_states", cid, "before")
+    assert json.loads((pz.dir / f"{cid}.json").read_text())["v"] == 2
+    core.call("puzzles.set_act", cid, 2)                                       # another act: its states start over
+    assert core.call("puzzles.charts")["charts"][0]["states"] == []
 
 
 def test_the_world_saves_keep_a_history(core, home):

@@ -5,7 +5,8 @@ through the artifact's database; here a small stand-in for that database (puzzle
 saves through this module into the project. The page doesn't know the difference.
 
 Data:   <project>/puzzles/charts/<id>.json   one chart: its steps (nodes) and links (edges), as the page
-                                             writes them ("v": 1)
+                                             writes them ("v": 2: `states`, the states of its act it is
+                                             active in, none = every state; a version 1 chart has none)
         <project>/puzzles/.trash/<time>/      deleted charts (nothing is deleted for good)
 Offers: puzzles.charts        the charts, in the shape Plastico reads (steps per scene, keys for locks)
         puzzles.rename_scene  a scene got a new id in the world: move the steps that were there
@@ -25,7 +26,7 @@ from ..core.modules import Interface, Module
 from ..core.project import ProjectError
 from ..paths import PUZZLES_WEB
 
-CHART_VERSION = 1
+CHART_VERSION = 2
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_CHART = 4 * 1024 * 1024
 NODE_KEYS = ("id", "kind", "title", "scene", "who", "when", "gid", "status")
@@ -75,7 +76,7 @@ def chart_from(d: dict) -> dict | None:
                 "notes": _str(d.get("notes")), "nodes": nodes, "edges": edges, "auto": True}
     if isinstance(d.get("nodes"), list):
         positioned = any(isinstance(n, dict) and ("x" in n or "y" in n) for n in d["nodes"])
-        out = {k: d[k] for k in ("name", "act", "notes", "nodes", "edges", "auto", "createdAt", "updatedAt") if k in d}
+        out = {k: d[k] for k in ("name", "act", "states", "notes", "nodes", "edges", "auto", "createdAt", "updatedAt") if k in d}
         out["v"] = CHART_VERSION
         out.setdefault("edges", [])
         out["edges"] = [e for e in out["edges"] if isinstance(e, dict)]
@@ -85,6 +86,11 @@ def chart_from(d: dict) -> dict | None:
             out["_id"] = d["id"]
         return out
     return None
+
+
+def chart_states(d: dict) -> list[str]:
+    """The states of its act a chart is active in ([]: every state)."""
+    return [s for s in d.get("states") or [] if isinstance(s, str) and s] if isinstance(d.get("states"), list) else []
 
 
 def step_count(nodes) -> int:
@@ -106,7 +112,7 @@ def charts_in(data) -> list[dict]:
 class PuzzlesModule(Module):
     id = "puzzles"
     title = "Puzzle Charts"
-    data_version = 1
+    data_version = 2      # 2: charts say the states they are active in (a version 1 chart reads as active in every state)
     web_dir = PUZZLES_WEB
     api_prefixes = ("puzzles",)
 
@@ -202,8 +208,8 @@ class PuzzlesModule(Module):
         for cid, d in self.docs():
             nodes = [{k: (n.get(k) or "") for k in NODE_KEYS} for n in d.get("nodes", []) if isinstance(n, dict)]
             edges = [{"from": e.get("from"), "to": e.get("to")} for e in d.get("edges", []) if isinstance(e, dict)]
-            out.append({"id": cid, "name": d.get("name") or "Untitled chart", "act": d.get("act", 1), "nodes": nodes,
-                        "edges": edges, "updated": d.get("updatedAt", 0), "steps": step_count(nodes)})
+            out.append({"id": cid, "name": d.get("name") or "Untitled chart", "act": d.get("act", 1), "states": chart_states(d),
+                        "nodes": nodes, "edges": edges, "updated": d.get("updatedAt", 0), "steps": step_count(nodes)})
         out.sort(key=lambda c: (c["act"] if isinstance(c["act"], int) else 99, c["name"].lower()))
         return {"synced": int(time.time() * 1000), "source": "cassetto", "live": True, "charts": out}
 
@@ -215,7 +221,7 @@ class PuzzlesModule(Module):
             act = max(1, min(99, int(act)))
         except (TypeError, ValueError):
             act = 1
-        self.write(cid, {"name": (str(name).strip() or "Untitled chart")[:200], "act": act, "notes": "", "auto": True,
+        self.write(cid, {"name": (str(name).strip() or "Untitled chart")[:200], "act": act, "states": [], "notes": "", "auto": True,
                          "nodes": [{"id": "n" + secrets.token_hex(4), "kind": "goal", "title": "The end goal", "scene": "", "who": "",
                                     "when": "", "gid": "", "status": "idea", "notes": "", "x": 0, "y": 0}],
                          "edges": [], "createdAt": now, "updatedAt": now, "rev": "create:" + secrets.token_hex(3)})
@@ -237,10 +243,29 @@ class PuzzlesModule(Module):
         if d.get("act") == act:
             return {"changed": False}
         d["act"] = act
+        d["states"] = []        # the old act's states mean nothing in the new one: active in every state
         d["updatedAt"] = int(time.time() * 1000)
         d["rev"] = "move:" + secrets.token_hex(3)
         self.write(cid, d)
         self.ctx.core.settle(self.id, chart=cid, reason="set_act")
+        return {"changed": True}
+
+    def set_states(self, cid: str, states) -> dict:
+        """The states of its act the chart is active in ([]: every state). Returns {changed}."""
+        if not isinstance(states, list) or not all(isinstance(s, str) and s for s in states):
+            raise ValueError("A chart's states are a list of state ids.")
+        states = list(dict.fromkeys(states))
+        f = self._file(cid)
+        d = self._read(f) if f.exists() else None
+        if d is None or int(d.get("v", 1)) > CHART_VERSION:
+            raise ValueError("That chart isn't in the project any more.")
+        if chart_states(d) == states:
+            return {"changed": False}
+        d["states"] = states
+        d["updatedAt"] = int(time.time() * 1000)
+        d["rev"] = "states:" + secrets.token_hex(3)
+        self.write(cid, d)
+        self.ctx.core.settle(self.id, chart=cid, reason="set_states")
         return {"changed": True}
 
     def rename_scene(self, old: str, new: str) -> dict:
@@ -289,18 +314,21 @@ class PuzzlesModule(Module):
         else:
             moved = self._relink(field, value, new, "add_to_world")
         placed = []
-        if kind == "person":   # where the steps have them: that scene, at the step's time of day (any time: every time)
+        if kind == "person":   # where the steps have them: that scene, in the step's state (none: always)
             cat = self.ctx.optional("world.catalog") or {}
-            scenes, phases = {s for s, _ in cat.get("scenes", [])}, list(cat.get("phases") or [])
+            scenes = {s for s, _ in cat.get("scenes", [])}
+            act_of = {s["id"]: s["act"] for s in cat.get("hierarchy", [])}
+            states = {a: [sid for sid, _ in lst] for a, lst in (cat.get("states") or {}).items()}
             where: dict[str, set] = {}
             for _, d in self.docs():
                 for n in d.get("nodes", []):
                     if isinstance(n, dict) and n.get("who") == new and n.get("scene") in scenes and n.get("kind") not in ("goal", "setup"):
-                        where.setdefault(n["scene"], set()).update([n["when"]] if n.get("when") in phases else phases)
+                        phases = states.get(act_of.get(n["scene"]), [])
+                        where.setdefault(n["scene"], set()).add(n["when"] if n.get("when") in phases else "any")
             for sid, phs in where.items():
-                if phs:
-                    self.ctx.require("world.place_person", new, sid, [ph for ph in phases if ph in phs])
-                    placed.append({"scene": sid, "phases": [ph for ph in phases if ph in phs]})
+                order = ["any"] if "any" in phs else [ph for ph in states.get(act_of.get(sid), []) if ph in phs]
+                self.ctx.require("world.place_person", new, sid, None if order == ["any"] else order)
+                placed.append({"scene": sid, "phases": order})
         return {"id": new, "name": nice, **moved, "placed": placed}
 
     def references(self) -> dict:
@@ -333,7 +361,9 @@ class PuzzlesModule(Module):
             Interface("puzzles.create_chart", self.create_chart,
                       "(name, act=1) -> id: a new chart with just its end goal, in that act."),
             Interface("puzzles.set_act", self.set_act,
-                      "(chart id, act) -> {changed}: the chart goes to that act (1 to 99)."),
+                      "(chart id, act) -> {changed}: the chart goes to that act (1 to 99), active in every state of it."),
+            Interface("puzzles.set_states", self.set_states,
+                      "(chart id, [state ids]) -> {changed}: the states of its act the chart is active in ([]: every state)."),
             Interface("puzzles.rename_scene", self.rename_scene,
                       "(old, new) -> {steps, charts}: the steps placed in scene `old` move to `new`."),
             Interface("puzzles.add_to_world", self.add_to_world,

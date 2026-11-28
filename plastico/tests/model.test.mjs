@@ -5,7 +5,10 @@ import * as model from '../web/js/model.js';
 
 function world(scenes, links, extra = {}) {
   return {
-    name: 'T', start: scenes[0][0], phases: extra.phases || [], acts: extra.acts || [{ id: '1', name: '', start: '' }],
+    // extra.phases: a group of states of act 1 (their names: the ids, capitalised); extra.groups: the groups
+    name: 'T', start: scenes[0][0],
+    acts: extra.acts || [{ id: '1', name: '', start: '' }],
+    groups: extra.groups || (extra.phases ? [{ id: 'time', name: 'Time', acts: ['1'], states: extra.phases.map((p) => ({ id: p, name: p[0].toUpperCase() + p.slice(1) })) }] : []),
     areas: [], people: extra.people || [],
     scenes: scenes.map(([id, more = {}]) => ({ id, name: id.toUpperCase(), kind: 'inside', act: '1', area: '', x: 0, z: 0, floor: 0, status: 'idea', open: [], people: {}, notes: '', delete: false, ...more })),
     links: links.map(([from, to, more = {}], i) => ({ id: `l${i}`, from, to, status: 'idea', lock: null, open: [], via: '', notes: '', delete: false, ...more })),
@@ -176,18 +179,63 @@ test('a puzzle step with someone where the world does not put them then', () => 
   assert.ok(!heads(model.derive(w, null, charts('', 'pub'))).includes('Not there then'));           // any time: some time is enough
   const M = model.derive(w, null, charts('day', 'pub'));
   const nt = model.checks(M).find((i) => i.head === 'Not there then');
-  assert.ok(nt && nt.scenes[0] === 'pub' && /Ask Elda/.test(nt.text) && /day/.test(nt.text));
+  assert.ok(nt && nt.scenes[0] === 'pub' && /Ask Elda/.test(nt.text) && /“Day”/.test(nt.text));
   // the buttons that put her there, and open the step
   assert.deepEqual(nt.fix, { place: { who: 'elda', scene: 'pub', when: 'day' }, steps: [{ chart: 'c', step: 'n' }] });
-  // it says where the world has her instead: nowhere at day, in the pub only at midnight
-  assert.match(nt.text, /At day the world doesn’t put Elda in any scene\. PUB has Elda at midnight\./);
+  // it says where the world has her instead: nowhere in "Day", in the pub only in "Midnight" (the states' names)
+  assert.match(nt.text, /In “Day” the world doesn’t put Elda in any scene\. PUB has Elda in “Midnight”\./);
   const bank = model.checks(model.derive(w, null, charts('', 'bank'))).find((i) => i.head === 'Not there then');   // never in the bank
-  assert.ok(bank && /The world puts Elda in PUB \(midnight\)\./.test(bank.text));
+  assert.ok(bank && /The world puts Elda in PUB \(“Midnight”\)\./.test(bank.text));
   assert.match(model.checks(model.derive(w, null, charts('midnight', 'bank'))).find((i) => i.head === 'Not there then').text,
-    /At midnight the world puts Elda in PUB\./);
+    /In “Midnight” the world puts Elda in PUB\./);
   // the player, and people the world doesn't have (that's a broken link, said elsewhere), aren't checked here
   const other = { charts: [{ id: 'c', name: 'K', act: 1, edges: [], nodes: [
     { id: 'a', kind: 'action', title: 'x', scene: 'bank', who: 'player', when: 'day' },
     { id: 'b', kind: 'action', title: 'y', scene: 'bank', who: 'stranger', when: 'day' }] }] };
   assert.ok(!heads(model.derive(w, null, other)).includes('Not there then'));
+});
+
+test('groups of states: one state of each on at a time, shared by the acts they hold for', () => {
+  const acts = [{ id: '1', name: '', start: '' }, { id: '2', name: '', start: '' }];
+  const groups = [
+    { id: 'weather', name: 'Weather', acts: ['1', '2'], states: [{ id: 'sun', name: 'Sun' }, { id: 'rain', name: 'Rain' }] },
+    { id: 'story', name: 'Story', acts: ['1'], states: [{ id: 'before', name: 'Before the fallout' }, { id: 'after', name: 'After the fallout' }] }];
+  // the wife is home before the fallout, any weather; the umbrella seller when it rains before the fallout;
+  // the postman in the shop of act 2 when it is sunny
+  const w = world([['home', { people: { before: ['wife'], rain: ['seller'] } }], ['shop', { act: '2', people: { sun: ['postman'] } }]], [],
+    { acts, groups, people: [{ id: 'wife', name: 'Wife' }, { id: 'seller', name: 'Seller' }, { id: 'postman', name: 'Postman' }] });
+  w.scenes[0].people.before.push('seller');
+  const M = model.derive(w, null, { charts: [
+    { id: 'coffee', name: 'Coffee machine', act: 1, states: ['before'], nodes: [], edges: [] },
+    { id: 'umbrella', name: 'Umbrella', act: 1, states: ['rain', 'after'], nodes: [], edges: [] },
+    { id: 'ruins', name: 'Ruins', act: 1, states: [], nodes: [], edges: [] }] });
+  assert.deepEqual(model.statesOf(M, '1'), ['sun', 'rain', 'before', 'after']);
+  assert.deepEqual(model.statesOf(M, '2'), ['sun', 'rain']);
+  assert.deepEqual(model.groupsOf(M, '2').map((g) => g.id), ['weather']);
+  assert.equal(model.stateName(M, '1', 'after'), 'After the fallout');
+  const ids = (scene, sel) => model.peopleAt(M, M.scenes.get(scene), sel).map((p) => p.id).sort();
+  assert.deepEqual(ids('home', { weather: 'rain', story: 'before' }), ['seller', 'wife']);
+  assert.deepEqual(ids('home', { weather: 'sun', story: 'before' }), ['wife']);
+  assert.deepEqual(ids('home', { weather: 'rain', story: 'after' }), []);
+  assert.deepEqual(ids('home', 'rain'), ['seller', 'wife']);          // one state on, the other groups any
+  assert.deepEqual(ids('shop', { weather: 'rain', story: 'before' }), []);   // the rain is on act 2 too
+  assert.deepEqual(ids('shop', { weather: 'sun' }), ['postman']);
+  const c = (id) => M.chartById.get(id);
+  assert.ok(model.chartActiveIn(M, c('coffee'), { weather: 'rain', story: 'before' }) && !model.chartActiveIn(M, c('coffee'), { story: 'after' }));
+  assert.ok(model.chartActiveIn(M, c('umbrella'), { weather: 'rain', story: 'after' }));
+  assert.ok(!model.chartActiveIn(M, c('umbrella'), { weather: 'sun', story: 'after' }) && !model.chartActiveIn(M, c('umbrella'), { weather: 'rain', story: 'before' }));
+  assert.ok(model.chartActiveIn(M, c('ruins'), { weather: 'sun', story: 'after' }));       // names no state: always
+  assert.equal(model.combos(M, '1').length, 4);
+  assert.ok(!heads(M).includes('In two places'));
+  // a route only through what is open with the states on
+  const w2 = world([['a'], ['b']], both('a', 'b', { open: ['after', 'sun'] }), { acts, groups });
+  const M2 = model.derive(w2, null, null);
+  assert.equal(model.route(M2, 'a', 'b', { phase: { weather: 'sun', story: 'before' } }), null);
+  assert.equal(model.route(M2, 'a', 'b', { phase: { weather: 'rain', story: 'after' } }), null);
+  assert.deepEqual(model.route(M2, 'a', 'b', { phase: { weather: 'sun', story: 'after' } }).scenes, ['a', 'b']);
+  // the same person in two scenes of an act with the same states on
+  const w3 = world([['a', { people: { rain: ['amy'] } }], ['b', { people: { before: ['amy'] } }]], both('a', 'b'), { acts, groups, people: [{ id: 'amy', name: 'Amy' }] });
+  const two = model.checks(model.derive(w3, null, null)).filter((i) => i.head === 'In two places');
+  assert.equal(two.length, 1);
+  assert.match(two[0].text, /“Rain” \+ “Before the fallout”/);
 });

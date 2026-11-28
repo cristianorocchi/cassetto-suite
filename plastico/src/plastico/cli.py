@@ -73,7 +73,10 @@ def main(argv: list[str] | None = None) -> int:
             "world": w["name"], "updated": int(time.time() * 1000),
             "scenes": [[s["id"], s["name"]] for s in w["scenes"] if not s.get("delete")],
             "people": [[p["id"], p["name"]] for p in w["people"]],
-            "phases": w["phases"],
+            "acts": [[a["id"], a.get("name", "")] for a in w["acts"]],
+            "groups": [{"id": g["id"], "name": g["name"], "acts": g["acts"], "states": [[s["id"], s["name"]] for s in g["states"]]}
+                       for g in w["groups"]],
+            "states": {a["id"]: [[s["id"], s["name"]] for g in store.groups_of(w, a["id"]) for s in g["states"]] for a in w["acts"]},
         }
         print(json.dumps(doc, ensure_ascii=False, indent=1))
         return 0

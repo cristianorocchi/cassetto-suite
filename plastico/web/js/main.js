@@ -37,7 +37,8 @@ function stepGlyph(kind) { const s = document.createElementNS('http://www.w3.org
 /* ------------------------------------------------------------------ state */
 const S = {
   worlds: [], wid: null, bundle: null, world: null, M: null, rev: 0,
-  sel: null, ui: { mode: 'skeleton', phase: '', act: 'all', area: '', top: false, people: true, steps: true, names: true },
+  // ui.states: the state on screen in each act ({act id: state id}); in Cassetto, the suite's (shared by every module)
+  sel: null, ui: { mode: 'skeleton', states: {}, act: 'all', area: '', top: false, people: true, steps: true, names: true },
   route: null, play: null,
   undo: [], redo: [], lastEdit: null,
   saveTimer: 0, saving: false, saveAgain: false, dirty: false,
@@ -99,7 +100,28 @@ function derive() {
   S.M = model.derive(S.world, S.bundle && S.bundle.game, S.bundle && S.bundle.charts, (S.bundle && S.bundle.uploads) || []);
   if (S.sel && S.sel.type === 'scene' && !S.M.scenes.has(S.sel.id)) S.sel = null;
   if (S.sel && S.sel.type === 'pair' && !S.M.pairs.has(S.sel.key)) S.sel = null;
-  if (!S.M.phases.includes(S.ui.phase)) S.ui.phase = S.M.phases.includes('midnight') ? 'midnight' : (S.M.phases[0] || '');
+}
+
+// --- the states on screen: one state of each group ("Weather": rain; "Story": after the fallout), the same for
+// every act the group holds for (in Cassetto, the suite's, shared by every module)
+/** The state of a group on screen: the one picked, else the group's first. */
+function stateOfGroup(gid) {
+  const g = S.M && S.M.groups.find((x) => x.id === gid); if (!g || !g.states.length) return '';
+  const want = (CS && CS.state ? CS.state(gid) : '') || S.ui.states[gid];
+  return g.states.some((s) => s.id === want) ? want : g.states[0].id;
+}
+/** The selection on screen: {group: state} for every group. */
+function sel() { const o = {}; if (S.M) for (const g of S.M.groups) if (g.states.length) o[g.id] = stateOfGroup(g.id); return o; }
+/** The names of the states on for an act's groups: “Rain” + “After the fallout”. */
+function onNames(act) { return model.groupsOf(S.M, act).filter((g) => g.states.length).map((g) => stateNm(act, stateOfGroup(g.id))).join(' + '); }
+/** The phase of the game on screen, for the game's pictures ('midnight' when the game has none: its default art). */
+function picturePhase() { return (S.M && S.M.groups.some((g) => g.id === 'game') && stateOfGroup('game')) || 'midnight'; }
+const stateNm = (act, id) => model.stateName(S.M, act, id);
+/** The act whose states the view's buttons and keys 1–9 work on: the act on screen, else the selected scene's, else the first. */
+function stateAct() {
+  if (S.ui.act !== 'all') return S.ui.act;
+  const sc = S.sel && S.sel.type === 'scene' && S.M && S.M.scenes.get(S.sel.id);
+  return sc ? sc.act : ((S.world && S.world.acts[0]) || {}).id || '1';
 }
 
 function visibleIds() {
@@ -118,7 +140,7 @@ function actStarts() {
 function pictureUrl(s) {
   if (!s.hasPicture) return null;
   const v = (S.bundle.game ? S.bundle.game.scanned_at : 0) + S.pictureVersion;
-  return `/api/worlds/${S.wid}/pictures/${encodeURIComponent(s.id)}/${S.ui.phase || 'midnight'}.jpg?w=1024&v=${v}`;
+  return `/api/worlds/${S.wid}/pictures/${encodeURIComponent(s.id)}/${encodeURIComponent(picturePhase())}.jpg?w=1024&v=${v}`;
 }
 
 function renderLabel(s, elx) {
@@ -127,7 +149,7 @@ function renderLabel(s, elx) {
   if (starts.has(s.id)) elx.append(el('span', 'start-tag', S.world.acts.length > 1 ? `Start · act ${starts.get(s.id)}` : 'Start'));
   const card = el('div', 'lab-card');
   if (s.state !== 'game') card.append(el('span', 'lab-chip' + (s.state === 'delete' ? ' delete' : ''), STATE_LABEL[s.state]));
-  else if (S.ui.phase && !model.sceneOpenAt(s, S.ui.phase)) card.append(el('span', 'lab-chip closed', `Closed at ${S.ui.phase}`));
+  else if (!model.sceneOpenAt(S.M, s, sel())) card.append(el('span', 'lab-chip closed', `Closed: ${onNames(s.act)}`));
   card.append(el('div', 'lab-name', s.name || s.id));
   const meta = el('div', 'lab-meta');
   const steps = (S.M.steps.get(s.id) || []).filter(({ node }) => node.kind !== 'goal' && node.kind !== 'setup');
@@ -136,8 +158,8 @@ function renderLabel(s, elx) {
   if (s.parent) { const P = S.M.scenes.get(s.parent); if (P) meta.append(el('span', 'in', `in ${P.name || P.id}`)); }
   if ((s.charts || []).length) meta.append(el('span', '', `${s.charts.length} chart${s.charts.length > 1 ? 's' : ''}`));
   if (meta.childNodes.length) card.append(meta);
-  if (S.ui.people && S.M.phases.length) {
-    const ppl = model.peopleAt(S.M, s, S.ui.phase);
+  if (S.ui.people) {
+    const ppl = model.peopleAt(S.M, s, sel());
     if (ppl.length) {
       const names = ppl.map((p) => p.name);
       card.append(el('div', 'lab-people', names.length > 4 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ')));
@@ -158,10 +180,10 @@ function computeHl() {
   const hl = { scene: new Map(), pair: new Map() };
   const M = S.M;
   if (S.play) {
-    const reach = model.bfs(model.adjacency(M, { phase: S.ui.phase || null, keys: S.play.keys, builtOnly: S.play.builtOnly }), S.play.at);
+    const reach = model.bfs(model.adjacency(M, { phase: sel(), keys: S.play.keys, builtOnly: S.play.builtOnly }), S.play.at);
     for (const s of M.scenes.values()) hl.scene.set(s.id, s.id === S.play.at ? 'here' : reach.dist.has(s.id) ? 'avail' : 'dim');
     for (const P of M.pairs.values()) {
-      const usable = P.links.some((l) => reach.dist.has(l.from) && model.linkOpenAt(l, S.ui.phase || null) && (!l.lock || S.play.keys.has(l.lock.needs)) && l.state !== 'delete' && (!S.play.builtOnly || l.state === 'game'));
+      const usable = P.links.some((l) => reach.dist.has(l.from) && model.linkOpenAt(M, l, sel()) &&(!l.lock || S.play.keys.has(l.lock.needs)) && l.state !== 'delete' && (!S.play.builtOnly || l.state === 'game'));
       const blocked = P.links.some((l) => l.lock && !S.play.keys.has(l.lock.needs) && reach.dist.has(l.from));
       hl.pair.set(P.key, blocked ? 'blocked' : usable ? '' : 'dim');
     }
@@ -466,7 +488,7 @@ function routePick(id) {
 function computeRoute() {
   const R = S.route;
   if (!R.from || !R.to) return;
-  R.path = model.route(S.M, R.from, R.to, { phase: R.time ? S.ui.phase || null : null, keys: R.locks ? new Set() : null });
+  R.path = model.route(S.M, R.from, R.to, { phase: R.time ? sel() : null, keys: R.locks ? new Set() : null });
   R.none = !R.path;
 }
 function stopRoute() { S.route = null; renderView(); renderBanner(); renderHeader(); }
@@ -484,7 +506,7 @@ function startPlay() {
 function playMove(id) {
   const P = S.play;
   if (id === P.at) return;
-  const path = model.route(S.M, P.at, id, { phase: S.ui.phase || null, keys: P.keys, builtOnly: P.builtOnly });
+  const path = model.route(S.M, P.at, id, { phase: sel(), keys: P.keys, builtOnly: P.builtOnly });
   if (!path) { toast(`Can’t get to ${S.M.scenes.get(id).name} from here yet.`); return; }
   P.steps += path.links.length; P.at = id;
   view.setToken(id, path.scenes);
@@ -511,7 +533,7 @@ function renderBanner() {
     if (S.M.phases.length) {
       const tk = el('label'); const c2 = el('input'); c2.type = 'checkbox'; c2.checked = R.time;
       c2.addEventListener('change', () => { R.time = c2.checked; computeRoute(); refreshHighlight(); renderBanner(); });
-      tk.append(c2, document.createTextNode(`Only what’s open at ${S.ui.phase}`));
+      tk.append(c2, document.createTextNode('Only what’s open in the states on screen'));
       b.append(tk);
     }
     b.append(btn('Done', 'btn small', stopRoute));
@@ -520,7 +542,7 @@ function renderBanner() {
   if (S.play) {
     const P = S.play;
     const here = S.M.scenes.get(P.at);
-    b.append(el('b', '', `In ${here ? here.name : '?'}`), el('span', 'msg', `${P.steps} scene change${P.steps === 1 ? '' : 's'} so far${S.M.phases.length ? ` · ${S.ui.phase}` : ''}. Click a lit scene to walk there.`));
+    b.append(el('b', '', `In ${here ? here.name : '?'}`), el('span', 'msg', `${P.steps} scene change${P.steps === 1 ? '' : 's'} so far${here && onNames(here.act) ? ` · ${onNames(here.act)}` : ''}. Click a lit scene to walk there.`));
     const keys = model.lockKeys(S.M);
     if (keys.length) {
       const k = el('div', 'keys');
@@ -608,21 +630,39 @@ function renderKey() {
   row('<svg viewBox="0 0 26 14"><rect x="8" y="6" width="10" height="7" rx="1.5" fill="none" stroke="var(--ink)" stroke-width="1.4"/><path d="M10 6V4.5a3 3 0 0 1 6 0V6" fill="none" stroke="var(--ink)" stroke-width="1.4"/></svg>', 'Locked', 'needs an item or a flag');
 }
 
+// The groups of states of the act on screen (every act: every group), each with its name and its states,
+// the one on lit. Keys 1–9 pick the states of the act on screen (or the selected scene's act), group after group.
+function viewGroups() {
+  if (!S.M) return [];
+  return S.M.groups.filter((g) => g.states.length && (S.ui.act === 'all' || g.acts.includes(S.ui.act)));
+}
+function keyedStates() { return model.groupsOf(S.M, stateAct()).flatMap((g) => g.states.map((s) => s.id)); }
 function renderPhases() {
   const p = $('#phases'); p.textContent = '';
-  p.hidden = !S.M || !S.M.phases.length;
-  if (!S.M) return;
-  S.M.phases.forEach((ph, i) => {
-    const k = window.CassettoKeys ? window.CassettoKeys.label(`plastico.phase${i + 1}`) : String(i + 1);
-    const b = btn(cap(ph), '', () => setPhase(ph), `Show the world at ${ph}${k ? ` (${k})` : ''}`);
-    b.setAttribute('aria-pressed', S.ui.phase === ph);
-    p.append(b);
-  });
+  if (!S.M || !S.world) { p.hidden = true; return; }
+  const gs = viewGroups();
+  p.hidden = !gs.length;
+  const keyed = keyedStates();
+  for (const g of gs) {
+    const lab = el('span', 'seg-label', g.name);
+    if (g.acts.length > 1) lab.title = `Holds for acts ${g.acts.join(', ')}: the state picked is the same in all of them`;
+    p.append(lab);
+    for (const s of g.states) {
+      const i = keyed.indexOf(s.id);
+      const k = i >= 0 && i < 9 ? (window.CassettoKeys ? window.CassettoKeys.label(`plastico.phase${i + 1}`) : String(i + 1)) : '';
+      const b = btn(s.name, '', () => setPhase(s.id, g.id), `${g.name}: ${s.name}${g.acts.length > 1 ? ` (acts ${g.acts.join(', ')})` : ''}${k ? ` (${k})` : ''}`);
+      b.setAttribute('aria-pressed', stateOfGroup(g.id) === s.id);
+      p.append(b);
+    }
+  }
 }
-function setPhase(ph) {
-  S.ui.phase = ph; renderPhases(); renderView(); renderInspector();
+function setPhase(ph, group = S.M.groupOf.get(ph), announce = true) {
+  if (!group) return;
+  S.ui.states[group] = ph;
+  if (announce && CS && CS.setState) CS.setState(group, ph);
+  renderPhases(); renderView(); renderInspector();
   if (S.route) { computeRoute(); renderBanner(); refreshHighlight(); }
-  if (S.play) renderBanner();
+  if (S.play) { renderBanner(); refreshHighlight(); }
 }
 function setMode(mode) {
   S.ui.mode = mode; lsSet('plastico:mode', mode);
@@ -723,18 +763,19 @@ function worldInspector(box) {
       if (it.scenes.length) { select({ type: 'scene', id: it.scenes[0] }); view.fit(it.scenes); }
     });
     li.append(bt);
-    if (it.fix && it.fix.place) {      // "Not there then": put them there, at that time, or go to the step
+    if (it.fix && it.fix.place) {      // "Not there then": put them there, in that state, or go to the step
       const { who, scene, when } = it.fix.place;
       const nmw = firstName((M.people.get(who) || {}).name) || who, sc = M.scenes.get(scene);
+      const whenNm = sc && when ? stateNm(sc.act, when) : when;
       const fixes = el('div', 'fixes');
-      const f = btn(`Put ${nmw} in ${sc ? sc.name : scene}${when ? ` (${when})` : ''}`, 'btn small fix', () => edit((w) => {
+      const f = btn(`Put ${nmw} in ${sc ? sc.name : scene}${when ? ` (${whenNm})` : ''}`, 'btn small fix', () => edit((w) => {
         const s = w.scenes.find((q) => q.id === scene); if (!s) return;
-        for (const ph of when ? [when] : w.phases || []) {
+        for (const ph of when ? [when] : ['any']) {
           s.people = s.people || {}; s.people[ph] = s.people[ph] || [];
           if (s.away && s.away[ph]) s.away[ph] = s.away[ph].filter((q) => q !== who);
           if (!s.people[ph].includes(who)) s.people[ph].push(who);
         }
-      }), when ? `Adds ${nmw} to People here in ${sc ? sc.name : scene} at ${when}` : `Adds ${nmw} to People here in ${sc ? sc.name : scene} at every time of day`);
+      }), when ? `Adds ${nmw} to People here in ${sc ? sc.name : scene} in ${whenNm}` : `Adds ${nmw} to People here in ${sc ? sc.name : scene} in every state`);
       fixes.append(f);
       const refs = it.fix.steps || [];
       if (CS && refs.length) {
@@ -761,9 +802,10 @@ function worldInspector(box) {
     const ul = el('ul', 'links charts'); ul.id = 'act-charts';
     for (const x of mine) {
       const placed = new Set(x.nodes.filter((q) => q.scene && q.kind !== 'goal' && q.kind !== 'setup' && M.scenes.has(q.scene)).map((q) => q.scene));
-      const li = el('li', 'chart-here'); const head = el('div', 'chart-head');
+      const on = model.chartActiveIn(M, x, sel());
+      const li = el('li', 'chart-here' + (on ? '' : ' off')); const head = el('div', 'chart-head');
       const go = el('button', 'go'); go.type = 'button';
-      go.append(stepGlyph('goal'), el('span', 't', x.name), el('span', 's', `${act ? '' : `act ${x.act} · `}${plural(chartSteps(x), 'step')} · in ${plural(placed.size, 'scene')}${act ? ` of ${actScenes.length}` : ''}`));
+      go.append(stepGlyph('goal'), el('span', 't', x.name), el('span', 's', `${act ? '' : `act ${x.act} · `}${plural(chartSteps(x), 'step')} · in ${plural(placed.size, 'scene')}${act ? ` of ${actScenes.length}` : ''}${on ? '' : ` · not active in ${onNames(String(x.act))}`}`));
       go.title = `Open “${x.name}” in Puzzle Charts`;
       go.addEventListener('click', () => CS.navigate('puzzles', { chart: x.id }));
       head.append(go); li.append(head); ul.append(li);
@@ -795,11 +837,11 @@ function worldInspector(box) {
     const ks = [['plastico.add', 'add a scene'], ['plastico.delete', 'remove the selection'], ['plastico.route', 'route'], ['plastico.play', 'play test'],
       ['plastico.mode', 'skeleton/pictures'], ['plastico.top', 'map view'], ['plastico.fit', 'fit'], ['plastico.undo', 'undo']]
       .filter(([id]) => KS.label(id)).map(([id, what]) => `${KS.label(id)} ${what}`);
-    const t1 = KS.label('plastico.phase1'), tn = KS.label(`plastico.phase${Math.max(1, Math.min(9, (S.M && S.M.phases.length) || 4))}`);
-    if (t1) ks.push(`${t1}${tn && tn !== t1 ? '–' + tn : ''} time of day`);
+    const t1 = KS.label('plastico.phase1'), tn = KS.label(`plastico.phase${Math.max(1, Math.min(9, (S.M && keyedStates().length) || 4))}`);
+    if (t1) ks.push(`${t1}${tn && tn !== t1 ? '–' + tn : ''} state`);
     k.append(el('p', 'none', ks.join(' · ') || 'No keys are set for Plastico.'));
     if (CS && CS.settings) k.append(btn('Change the keys…', 'btn small', () => CS.settings('keys')));
-  } else k.append(el('p', 'none', 'N add a scene · Delete remove the selection · R route · P play test · S skeleton/pictures · T map view · F fit · 1–4 time of day · Ctrl+Z undo'));
+  } else k.append(el('p', 'none', 'N add a scene · Delete remove the selection · R route · P play test · S skeleton/pictures · T map view · F fit · 1–9 state · Ctrl+Z undo'));
   box.append(k);
 }
 
@@ -816,7 +858,7 @@ function sceneInspector(box, s) {
   // picture
   const url = pictureUrl(s);
   if (url) {
-    const p = el('div', 'pic'); const img = el('img'); img.alt = `${s.name} at ${S.ui.phase || 'midnight'}`; img.src = url.replace('w=1024', 'w=640'); p.append(img); box.append(p);
+    const p = el('div', 'pic'); const img = el('img'); img.alt = `${s.name}${onNames(s.act) ? ` (${onNames(s.act)})` : ''}`; img.src = url.replace('w=1024', 'w=640'); p.append(img); box.append(p);
   }
   if (!s.inGame) {
     const dz = el('div', 'drop-zone', url ? 'Drop another picture here, or click to choose one' : 'Drop a sketch or a picture here (or click) to see it in Pictures mode');
@@ -889,11 +931,12 @@ function sceneInspector(box, s) {
   if (!starts.has(s.id) && act && !(S.bundle.game && act.id === w.acts[0].id && S.M.start)) {
     box.append(btn(`Make it where act ${act.id} starts`, 'btn small', () => edit((x) => { x.acts.find((a) => a.id === act.id).start = s.id; })));
   }
-  // time of day
-  if (M.phases.length) {
-    const sec = section('Open at');
-    sec.append(chipsToggle(M.phases, s.open, (list) => edit((x) => { ws().open = list; })));
-    sec.append(el('span', 'none', s.open.length ? 'Closed at the other times.' : 'Always open. Pick times to say it is only open then.'));
+  // the states of its act's groups it is open in
+  const sts = model.statesOf(M, s.act);
+  if (sts.length) {
+    const sec = section('Open in');
+    sec.append(stateChips(model.groupsOf(M, s.act), s.open || [], (list) => edit((x) => { ws().open = list; })));
+    sec.append(el('span', 'none', (s.open || []).some((p) => sts.includes(p)) ? 'Closed in the states not lit.' : 'Always open. Click a state to close it then.'));
     box.append(sec);
   }
   // people
@@ -1100,13 +1143,16 @@ function chartsSection(s, ws) {
   for (const cid of ids) {
     const c = M.chartById.get(cid);
     const nodes = byChart.get(cid) || [];
-    const li = el('li', 'chart-here'); li.dataset.chart = cid;
+    const ca = c ? String(c.act) : '';
+    const on = !c || model.chartActiveIn(M, c, sel());
+    const li = el('li', 'chart-here' + (on ? '' : ' off')); li.dataset.chart = cid;
     const head = el('div', 'chart-head');
     const go = el('button', 'go'); go.type = 'button';
     if (c) {
       const n = nodes.filter((q) => q.kind !== 'goal' && q.kind !== 'setup').length;
       go.append(stepGlyph('goal'), el('span', 't', c.name),
-        el('span', 's', nodes.length ? `act ${c.act} · ${plural(n, 'step')} here, of ${chartSteps(c)}` : `act ${c.act} · pinned here, no steps here yet`));
+        el('span', 's', (nodes.length ? `act ${c.act} · ${plural(n, 'step')} here, of ${chartSteps(c)}` : `act ${c.act} · pinned here, no steps here yet`)
+          + (on ? '' : ` · not active in ${onNames(ca)}`)));
       go.title = CS ? `Open “${c.name}” in Puzzle Charts` : c.name;
       go.addEventListener('click', () => { if (CS) CS.navigate('puzzles', { chart: cid, scene: s.id }); else toast('Open the Puzzle Charts page to see it.'); });
     } else {
@@ -1121,11 +1167,20 @@ function chartsSection(s, ws) {
       head.append(x);
     }
     li.append(head);
+    // the states of its act's groups the chart is active in (its own setting, the same in every scene it is in)
+    if (c && model.statesOf(M, ca).length) {
+      const chips = stateChips(model.groupsOf(M, ca), model.chartStates(M, c), (list) => {
+        CS.call('puzzles.set_states', cid, list).catch((e) => toast(`Couldn’t change it: ${e.message}`));
+      }, !CS);
+      chips.classList.add('chart-states');
+      chips.title = 'The states the chart is active in, in every scene it is in. Click one to switch it.';
+      li.append(field('Active in', chips));
+    }
     if (c && nodes.length) {
       const list = el('ul', 'steps');
       for (const node of nodes) {
         const st = el('li'); st.append(stepGlyph(node.kind));
-        const extra = [node.who && firstName((M.people.get(node.who) || {}).name) || node.who, node.when].filter(Boolean).join(' · ');
+        const extra = [node.who && firstName((M.people.get(node.who) || {}).name) || node.who, node.when && stateNm(ca, node.when)].filter(Boolean).join(' · ');
         st.append(el('span', '', node.title || 'Untitled step'), el('small', '', extra || (node.status === 'built' ? 'in game' : '')));
         if (CS) {
           st.classList.add('link'); st.tabIndex = 0; st.title = `Open “${node.title || 'Untitled step'}” in Puzzle Charts`;
@@ -1178,10 +1233,28 @@ function renameScene(from, to, auto) {
   }
 }
 
-function chipsToggle(all, on, change) {
+// The states something holds in (a scene or way open, a chart active), group by group: in each group the lit
+// states (all lit: that group doesn't matter). `list` is the flat list of state ids saved; `change` gets the new one.
+function stateChips(groups, list, change, readOnly = false) {
+  const box = el('div', 'state-chips');
+  for (const g of groups.filter((x) => x.states.length)) {
+    const ids = g.states.map((s) => s.id);
+    const mine = (list || []).filter((x) => ids.includes(x));
+    const row = el('div', 'state-row'); row.append(el('span', 'sg', g.name));
+    const chips = chipsToggle(ids, mine.length ? mine : ids, (next) => {
+      if (!next.length) { toast('Keep one state lit at least: with none it would never be so.'); return; }
+      const others = (list || []).filter((x) => !ids.includes(x));
+      change(next.length === ids.length ? others : [...others, ...next]);
+    }, (id) => stateNm('', id));
+    if (readOnly) chips.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    row.append(chips); box.append(row);
+  }
+  return box;
+}
+function chipsToggle(all, on, change, label = cap) {
   const c = el('div', 'chips');
   for (const p of all) {
-    const b = el('button', 'chip', cap(p)); b.type = 'button'; b.setAttribute('aria-pressed', on.includes(p));
+    const b = el('button', 'chip', label(p)); b.type = 'button'; b.setAttribute('aria-pressed', on.includes(p));
     b.addEventListener('click', () => { const next = on.includes(p) ? on.filter((x) => x !== p) : all.filter((x) => x === p || on.includes(x)); change(next); });
     c.append(b);
   }
@@ -1191,12 +1264,22 @@ function chipsToggle(all, on, change) {
 function peopleSection(s, ws) {
   const M = S.M;
   const sec = section('People here');
-  const phases = M.phases.length ? M.phases : [''];
+  // rows: "Always", then each group of the act with its states (someone in a state of a group is here when
+  // that state is on, whatever the other groups are; in states of two groups, when both are on)
+  const sts = model.statesOf(M, s.act);
+  const on = sel();
+  const rows = [{ ph: '', label: sts.length ? 'Always' : '' }];
+  for (const g of model.groupsOf(M, s.act)) if (g.states.length) {
+    rows.push({ head: g.name, shared: g.acts.length > 1 ? g.acts : null });
+    for (const st of g.states) rows.push({ ph: st.id, label: st.name, now: on[g.id] === st.id });
+  }
   const grid = el('div', 'ppl');
-  for (const ph of phases) {
-    if (ph) grid.append(el('span', 'ph' + (ph === S.ui.phase ? ' now' : ''), cap(ph)));
+  for (const r of rows) {
+    if (r.head) { const h = el('span', 'ph-group', r.head); if (r.shared) h.append(el('small', '', ` · acts ${r.shared.join(', ')}`)); grid.append(h); continue; }
+    const ph = r.ph;
+    if (r.label) grid.append(el('span', 'ph' + (r.now ? ' now' : ''), r.label));
     const row = el('div', 'chips');
-    const game = new Set((s.g && s.g.people && (ph ? s.g.people[ph] : Object.values(s.g.people).flat())) || []);
+    const game = new Set((s.g && s.g.people && (ph ? s.g.people[ph] : sts.length ? s.g.people.any : Object.values(s.g.people).flat())) || []);
     const away = model.awayAt(s, ph);
     const setAway = (id, gone) => edit((w) => {
       const sc = ws(); sc.away = sc.away || {}; const k = ph || 'any';
@@ -1210,7 +1293,7 @@ function peopleSection(s, ws) {
         c.title = 'In the game here, but the plan takes them out: change it in Godot';
         c.append(btn('↺', 'x', () => setAway(id, false), `Keep ${name} here`));
       } else {
-        c.title = 'In the game at this time';
+        c.title = 'In the game in this state';
         c.append(btn('×', 'x', () => setAway(id, true), `Take ${name} out of here (in the plan; you then change it in Godot)`));
       }
       row.append(c);
@@ -1239,7 +1322,7 @@ function peopleSection(s, ws) {
     grid.append(row);
   }
   sec.append(grid);
-  sec.append(el('span', 'none', s.inGame ? 'Grey chips come from the game (talk hotspots and characters drawn in the scene); add the ones you plan. × takes someone out; for a grey chip that is a plan to change in Godot, and ↺ undoes it.' : 'Who you plan to put here, at each time of day. × takes someone out.'));
+  sec.append(el('span', 'none', s.inGame ? 'Grey chips come from the game (talk hotspots and characters drawn in the scene); add the ones you plan. × takes someone out; for a grey chip that is a plan to change in Godot, and ↺ undoes it.' : sts.length ? 'Who you plan to put here: always, or in some states (in states of two groups: when both are on). × takes someone out.' : 'Who you plan to put here. × takes someone out. Give the act groups of states (World settings) to say who is here when.'));
   return sec;
 }
 
@@ -1301,9 +1384,13 @@ function directionBox(L) {
     d.append(field('Note', note));
     keyList();
   }
-  if (M.phases.length) {
-    if (L.gamePhases) d.append(el('p', 'none', `In the game it is only there at ${L.gamePhases.join(', ')}.`));
-    d.append(field('Open at', chipsToggle(M.phases, L.open || [], (list) => edit((x) => { wl().open = list; })), (L.open || []).length ? 'Closed at the other times.' : 'Always open.'));
+  // the states it is open in: those of the groups of the acts of the scenes it joins
+  const fa = (M.scenes.get(L.from) || {}).act, ta = (M.scenes.get(L.to) || {}).act;
+  const lgroups = M.groups.filter((g) => g.states.length && (g.acts.includes(fa) || g.acts.includes(ta)));
+  if (lgroups.length) {
+    if (L.gamePhases) d.append(el('p', 'none', `In the game it is only there in ${L.gamePhases.map((p) => stateNm('', p)).join(', ')}.`));
+    const open = (L.open || []).filter((p) => M.groupOf.has(p));
+    d.append(field('Open in', stateChips(lgroups, L.open || [], (list) => edit((x) => { wl().open = list; })), open.length ? 'Closed in the states not lit.' : 'Always open. Click a state to close it then.'));
   }
   const notes = el('input'); notes.value = L.notes || ''; notes.placeholder = 'A door, stairs, a ladder, a fade…';
   notes.addEventListener('input', () => edit((x) => { wl().notes = notes.value; }, { coalesce: 'lnotes:' + L.id, insp: false, view: false }));
@@ -1483,12 +1570,19 @@ async function openSettings() {
     proj.addEventListener('change', () => { other.hidden = proj.value !== '__other'; });
     const pf = field('Godot project', proj, 'Linked, Plastico reads its scenes and exits (a new scene in the game shows up here by itself) and can build the plan there.'); pf.append(other); body.append(pf);
     const linked = !!w.godot;
-    let phasesIn = null, startSel = null;
-    if (!linked) {
-      phasesIn = el('input'); phasesIn.value = (w.phases || []).join(', '); phasesIn.placeholder = 'morning, day, sunset, night';
-      body.append(field('Times of day', phasesIn, 'Leave empty if time doesn’t matter in this game.'));
-    } else body.append(el('p', 'none', `Times of day and the start come from the game: ${w.phases.join(', ') || 'none'}; starts in ${(S.M.scenes.get(w.start) || {}).name || '?'}.`));
-    // acts
+    const gamePhases = (S.bundle && S.bundle.game && S.bundle.game.phases) || [];
+    let startSel = null;
+    if (linked) body.append(el('p', 'none', `The start comes from the game: ${(S.M.scenes.get(w.start) || {}).name || '?'}.${gamePhases.length ? ` The game’s phases (${gamePhases.join(', ')}) are a group of states of every act.` : ''}`));
+    w.groups = w.groups || [];
+    // a state taken away (or a group from an act): nothing points at it any more there (a step in Puzzle
+    // Charts that names it counts as any state; a chart naming it is active in every state of that group)
+    const forgetState = (sid, act = null) => {
+      for (const s of w.scenes.filter((q) => !act || q.act === act)) {
+        for (const g of [s.people, s.away]) if (g) delete g[sid];
+        if (s.open) s.open = s.open.filter((q) => q !== sid);
+      }
+      for (const l of w.links) if (l.open && (!act || [l.from, l.to].some((id) => (w.scenes.find((q) => q.id === id) || {}).act === act))) l.open = l.open.filter((q) => q !== sid);
+    };
     const acts = el('div', 'listed'); const actsF = field('Acts', acts, 'An act can be its own island: give it a start scene and Plastico checks it on its own.');
     const drawActs = () => {
       acts.textContent = '';
@@ -1499,13 +1593,71 @@ async function openSettings() {
         const st = el('select'); { const o = el('option', '', 'Start: none'); o.value = ''; st.append(o); }
         for (const s of w.scenes.filter((q) => q.act === a.id)) { const o = el('option', '', s.name); o.value = s.id; st.append(o); }
         st.value = a.start || ''; st.addEventListener('change', () => { a.start = st.value; });
-        const x = btn('×', 'btn icon small', () => { if (w.acts.length === 1) return; const to = w.acts[i === 0 ? 1 : 0].id; for (const s of w.scenes) if (s.act === a.id) s.act = to; w.acts.splice(i, 1); drawActs(); }, 'Remove the act (its scenes move to another)');
+        const x = btn('×', 'btn icon small', () => {
+          if (w.acts.length === 1) return; const to = w.acts[i === 0 ? 1 : 0].id; for (const s of w.scenes) if (s.act === a.id) s.act = to;
+          w.acts.splice(i, 1); for (const g of w.groups) g.acts = (g.acts || []).filter((q) => q !== a.id); drawActs(); drawGroups();
+        }, 'Remove the act (its scenes move to another)');
         x.disabled = w.acts.length === 1;
         row.append(n, st, x); acts.append(row);
       });
-      acts.append(btn('Add an act', 'btn small', () => { const n = Math.max(0, ...w.acts.map((a) => parseInt(a.id, 10) || 0)) + 1; w.acts.push({ id: String(n), name: '', start: '' }); drawActs(); }));
+      acts.append(btn('Add an act', 'btn small', () => {
+        const n = String(Math.max(0, ...w.acts.map((a) => parseInt(a.id, 10) || 0)) + 1);
+        w.acts.push({ id: n, name: '', start: '' });
+        for (const g of w.groups) if (g.id === 'game') g.acts.push(n);       // the game's phases hold for every act
+        drawActs(); drawGroups();
+      }));
     };
     drawActs(); body.append(actsF);
+    // groups of states: what changes over time, for one act or several ("Weather" on acts 1 and 2: it rains on both)
+    const groups = el('div', 'listed'); const groupsF = field('States', groups, 'Groups of states: what changes over time. A group has one state on at a time (Weather: sun or rain; Story: before or after the fallout), and holds for the acts you tick: the same state is on in all of them. People, ways, scenes and puzzle charts can differ from one state to the next.');
+    const allIds = () => new Set(w.groups.flatMap((g) => [g.id, ...g.states.map((s) => s.id)]));
+    const drawGroups = () => {
+      groups.textContent = '';
+      w.groups.forEach((g, i) => {
+        const fromGame = g.id === 'game';
+        const box = el('div', 'group-edit'); box.dataset.group = g.id;
+        const head = el('div', 'group-head');
+        const n = el('input'); n.value = g.name; n.placeholder = 'Name of the group (Weather, Story…)'; n.addEventListener('input', () => { g.name = n.value; });
+        const actsOn = el('div', 'chips');
+        for (const a of w.acts) {
+          const b = el('button', 'chip', `Act ${a.id}`); b.type = 'button'; b.setAttribute('aria-pressed', (g.acts || []).includes(a.id)); b.disabled = fromGame;
+          b.title = fromGame ? 'The game’s phases hold for every act' : `Holds for act ${a.id}${a.name ? ` (${a.name})` : ''}`;
+          b.addEventListener('click', () => {
+            if ((g.acts || []).includes(a.id)) { g.acts = g.acts.filter((q) => q !== a.id); for (const s of g.states) forgetState(s.id, a.id); }
+            else g.acts = w.acts.map((q) => q.id).filter((q) => q === a.id || (g.acts || []).includes(q));
+            drawGroups();
+          });
+          actsOn.append(b);
+        }
+        const x = btn('×', 'btn icon small', () => { for (const s of g.states) forgetState(s.id); w.groups.splice(i, 1); drawGroups(); },
+          fromGame ? 'The game’s phases: they stay while the game has them' : 'Remove the group and its states (who is where in them goes too)');
+        x.disabled = fromGame;
+        head.append(n, actsOn, x); box.append(head);
+        const sts = el('div', 'act-states');
+        g.states.forEach((s, k) => {
+          const chip = el('span', 'state-edit');
+          const nm = el('input'); nm.value = s.name; nm.placeholder = 'State'; nm.title = fromGame ? `A phase of the game (${s.id}): rename it here, it stays in the game` : `Id: ${s.id}`;
+          nm.addEventListener('input', () => { s.name = nm.value; });
+          nm.addEventListener('change', () => { if (!nm.value.trim()) { nm.value = s.name = s.id; } });
+          const xs = btn('×', 'x', () => { forgetState(s.id); g.states.splice(k, 1); drawGroups(); }, fromGame ? 'A phase of the game: it stays while the game has it' : 'Remove the state (who is where in it goes too)');
+          xs.disabled = fromGame;
+          chip.append(nm, xs); sts.append(chip);
+        });
+        if (!fromGame) sts.append(btn('+ State', 'btn small', () => {
+          const taken = allIds(); let id = 'state', k = 2; while (taken.has(id)) id = `state_${k++}`;
+          g.states.push({ id, name: `State ${g.states.length + 1}` }); drawGroups();
+          const ins = groups.querySelectorAll(`.group-edit[data-group="${CSS.escape(g.id)}"] .state-edit input`); const last = ins[ins.length - 1]; if (last) { last.focus(); last.select(); }
+        }, 'Add a state to this group'));
+        box.append(sts); groups.append(box);
+      });
+      groups.append(btn('Add a group of states', 'btn small', () => {
+        const taken = allIds(); let id = 'group', k = 2; while (taken.has(id)) id = `group_${k++}`;
+        const act = S.ui.act !== 'all' ? S.ui.act : w.acts[0].id;
+        w.groups.push({ id, name: '', acts: [act], states: [] }); drawGroups();
+        const ins = groups.querySelectorAll('.group-head input'); const last = ins[ins.length - 1]; if (last) last.focus();
+      }, 'A new group of states (Weather, Story, Time of day…) for the act on screen; tick more acts to share it'));
+    };
+    drawGroups(); body.append(groupsF);
     // areas
     const areas = el('div', 'listed'); const areasF = field('Areas', areas, 'Parts of the world (a district, a building): they colour its scenes.');
     const drawAreas = () => {
@@ -1548,9 +1700,9 @@ async function openSettings() {
       const relink = godot !== S.world.godot;
       edit((x) => {
         x.name = name.value.trim() || x.name; x.godot = godot;
-        if (phasesIn) x.phases = phasesIn.value.split(',').map((q) => q.trim().toLowerCase()).filter(Boolean);
-        x.acts = w.acts; x.areas = w.areas; x.people = w.people;
-        for (const s of x.scenes) { const ws = w.scenes.find((q) => q.id === s.id); if (ws) { s.act = ws.act; s.area = ws.area; s.people = ws.people; s.away = ws.away; } }
+        x.acts = w.acts; x.groups = w.groups; x.areas = w.areas; x.people = w.people;
+        for (const s of x.scenes) { const ws = w.scenes.find((q) => q.id === s.id); if (ws) { s.act = ws.act; s.area = ws.area; s.people = ws.people; s.away = ws.away; s.open = ws.open; } }
+        for (const l of x.links) { const wl = w.links.find((q) => q.id === l.id); if (wl) l.open = wl.open; }
       });
       closeModal();
       if (relink) { await flushSave(); await loadWorld(S.wid, { keepView: false }); }
@@ -1594,6 +1746,7 @@ function showAct(a, announce = true) {
   if (a !== 'all' && !(S.world && S.world.acts.some((x) => x.id === a))) a = 'all';
   S.ui.act = a;
   if (announce && CS && CS.setAct) CS.setAct(a);
+  renderPhases();          // the state buttons are the act's
 }
 const onScreen = () => { try { return !window.frameElement || !window.frameElement.hidden; } catch { return true; } };
 
@@ -1628,12 +1781,12 @@ async function refresh(say) {
     const b = await api('GET', `/api/worlds/${S.wid}`);
     const before = JSON.stringify([S.bundle.game && S.bundle.game.exits, S.bundle.game && Object.keys(S.bundle.game.scenes), S.rev, chartKey(S.bundle.charts)]);
     const after = JSON.stringify([b.game && b.game.exits, b.game && Object.keys(b.game.scenes), b.world.rev, chartKey(b.charts)]);
-    if (before !== after || say) { const sel = S.sel; applyBundle(b, {}); S.sel = sel; derive(); renderInspector(); refreshHighlight(); }
+    if (before !== after || say) { const sel = S.sel; applyBundle(b, {}); S.sel = sel; derive(); renderPhases(); renderInspector(); refreshHighlight(); }
     else { S.bundle.changes = b.changes; S.bundle.last_build = b.last_build; S.bundle.game = b.game; }
     if (say) toast(b.game ? `Read ${b.game.name} again: ${Object.keys(b.game.scenes).length} scenes, ${b.game.exits.filter((e) => e.to).length} exits.` : 'Reloaded.');
   } catch (e) { if (say) toast(e.message); }
 }
-function chartKey(c) { return c && c.charts ? c.charts.map((x) => [x.id, x.name, x.nodes, x.edges]) : null; }
+function chartKey(c) { return c && c.charts ? c.charts.map((x) => [x.id, x.name, x.act, x.states, x.nodes, x.edges]) : null; }
 function renderAll() { renderHeader(); renderSide(); renderPhases(); renderView(); renderInspector(); renderBanner(); }
 
 async function boot() {
@@ -1742,7 +1895,7 @@ document.addEventListener('keydown', (e) => {
   const ph = /^plastico\.phase(\d)$/.exec(id);
   if (id !== 'plastico.undo' && id !== 'plastico.redo' && !S.world) return;
   e.preventDefault();
-  if (ph) { if (S.M && S.M.phases[+ph[1] - 1]) setPhase(S.M.phases[+ph[1] - 1]); return; }
+  if (ph) { const sts = S.M ? keyedStates() : []; if (sts[+ph[1] - 1]) setPhase(sts[+ph[1] - 1]); return; }
   if (ACTIONS[id]) ACTIONS[id]();
 });
 if (KEYS) KEYS.onChange(() => { renderPhases(); if (!S.sel) renderInspector(); });
@@ -1761,6 +1914,14 @@ if (CS) {
     if (!S.world || !a || a === S.ui.act || (a !== 'all' && !S.world.acts.some((x) => x.id === a))) return;
     showAct(a, false); renderSide(); renderView(); if (!S.sel) renderInspector();
     if (onScreen()) view.fit(); else S.fitOnShow = true;   // a hidden page has no size to fit to
+  });
+  // another module (or the project tree) puts a group in another state
+  CS.on('state', (ev) => {
+    if (!ev || !ev.group || !S.M) return;
+    S.ui.states[ev.group] = ev.state;
+    renderPhases(); renderView(); renderInspector();
+    if (S.route) { computeRoute(); renderBanner(); refreshHighlight(); }
+    if (S.play) { renderBanner(); refreshHighlight(); }
   });
   CS.register({
     flush: () => flushSave(),
