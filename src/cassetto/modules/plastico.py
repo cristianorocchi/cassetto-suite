@@ -24,13 +24,14 @@ from ..core.project import ProjectError
 from ..paths import PLASTICO_WEB
 
 WORLD = "world"
-WORLD_VERSION = store.VERSION      # plastico.store's "v" (2: grid sizes, scenes inside scenes, charts per scene)
+WORLD_VERSION = store.VERSION      # plastico.store's "v" (2: grid sizes, scenes inside scenes, charts per scene;
+                                   # 3: states per act instead of the world's times of day)
 
 
 class PlasticoModule(Module):
     id = "plastico"
     title = "Plastico"
-    data_version = 2      # 2: the world is at store version 2 (opening a version 1 project brings it up)
+    data_version = 3      # the world's store version (opening an older project brings it up: 1 → 2 → 3)
     web_dir = PLASTICO_WEB
     api_prefixes = ("worlds", "godot-projects")
 
@@ -57,6 +58,8 @@ class PlasticoModule(Module):
         if not f.exists():
             store.save(store.blank_world(WORLD, ctx.project.name), root=root)
         else:
+            if int(raw.get("v", 1)) < WORLD_VERSION:      # brought up to date on disk too (the old one stays in .history)
+                store.save(store.load(WORLD, root), root=root)
             self.project_renamed(ctx.project.name)
 
     def close(self) -> None:
@@ -125,20 +128,45 @@ class PlasticoModule(Module):
 
     @staticmethod
     def _people_at(w: dict, game: dict) -> dict:
-        """{scene: {time of day: [person ids]}}: who is in each scene when. The game's own people (less the ones
-        the plan takes away from it) and the ones the plan adds, as Plastico's People here shows them."""
+        """{scene: {state: [person ids]}}: who is in each scene when each state of its act's groups is on (the
+        other groups in any of their states). The game's own people (less the ones the plan takes away from it)
+        and the ones the plan adds, as Plastico's People here shows them. A scene whose act has no states: {"any": [...]}."""
+        gof = store.group_of(w)
+        group_states = {g["id"]: [s["id"] for s in g["states"]] for g in w.get("groups") or []}
         out = {}
         for s in w["scenes"]:
             if s.get("delete"):
                 continue
-            gp = (game.get(s["id"]) or {}).get("people") or {}
-            away, plan = s.get("away") or {}, s.get("people") or {}
-            per = {}
-            for ph in list(dict.fromkeys(list(w.get("phases") or []) + list(gp) + list(plan))):
-                ids = [i for i in gp.get(ph) or [] if i not in (away.get(ph) or [])]
-                ids += [i for i in plan.get(ph) or [] if i not in ids]
-                if ids:
-                    per[ph] = ids
+            listed: dict[str, set] = {}          # person -> the states they are listed under (game and plan)
+            from_game: dict[str, set] = {}
+            for key, ids in ((s.get("people") or {}).items()):
+                for i in ids or []:
+                    listed.setdefault(i, set()).add(key)
+            for key, ids in (((game.get(s["id"]) or {}).get("people") or {}).items()):
+                for i in ids or []:
+                    from_game.setdefault(i, set()).add(key)
+            away: dict[str, set] = {}
+            for key, ids in ((s.get("away") or {}).items()):
+                for i in ids or []:
+                    away.setdefault(i, set()).add(key)
+
+            def taken_away(pid, sel):
+                keys = away.get(pid) or set()
+                if "any" in keys:
+                    return True
+                for g in {gof[k] for k in keys if k in gof}:
+                    mine = {k for k in keys if gof.get(k) == g}
+                    if (sel[g] in mine) if g in sel else set(group_states[g]) <= mine:
+                        return True
+                return False
+
+            def here(sel):
+                ids = [i for i, ks in from_game.items() if store.present(ks, sel, gof) and not taken_away(i, sel)]
+                return ids + [i for i, ks in listed.items() if i not in ids and store.present(ks, sel, gof)]
+
+            sts = store.act_states(w, s["act"])
+            per = {st: here({gof[st]: st}) for st in sts} if sts else {"any": [i for i in dict.fromkeys([*from_game, *listed])]}
+            per = {k: v for k, v in per.items() if v}
             if per:
                 out[s["id"]] = per
         return out
@@ -173,8 +201,13 @@ class PlasticoModule(Module):
             "world": w["name"], "updated": w.get("updated", 0),
             "scenes": [[s["id"], s["name"]] for s in w["scenes"] if not s.get("delete")],
             "people": [[p["id"], p["name"] or p["id"]] for p in w["people"]],
-            "phases": list(w.get("phases") or []),
             "acts": [[a["id"], a.get("name", "")] for a in w["acts"]],
+            # the groups of states (one state of each on at a time) and the acts each holds for; state ids
+            # are the world's, and are what people, ways, steps and charts refer to
+            "groups": [{"id": g["id"], "name": g["name"], "acts": g["acts"], "states": [[s["id"], s["name"]] for s in g["states"]],
+                        "game": g["id"] == store.GAME_GROUP} for g in w.get("groups") or []],
+            # each act's states (those of its groups), in order
+            "states": {a["id"]: [[s["id"], s["name"]] for g in store.groups_of(w, a["id"]) for s in g["states"]] for a in w["acts"]},
             "start": w.get("start", ""),
             "godot": w.get("godot", ""),
             # the project's structure, for the tree: every scene with its act, the scene it is in, its charts
@@ -217,16 +250,18 @@ class PlasticoModule(Module):
         return self._edit_world(change)
 
     def place_person(self, pid: str, scene: str, phases=None) -> list[str]:
-        """Puts a person in a scene at those times of day (none: every time of day the world has), as a scene's
-        People here does. Returns the times they were added at (empty if they were already there)."""
+        """Puts a person in a scene in those states of its act (none: always, "any"), as a scene's People here
+        does. Returns the states they were added in (empty if they were already there)."""
         def change(w):
             if not any(x["id"] == pid for x in w["people"]):
                 raise ValueError(f"Nobody called {pid} in the world.")
             s = next((x for x in w["scenes"] if x["id"] == scene), None)
             if s is None:
                 raise ValueError(f"No scene {scene} in the world.")
-            all_ph = list(w.get("phases") or [])
-            want = [ph for ph in (phases or all_ph) if ph in all_ph]
+            all_ph = store.act_states(w, s["act"])
+            if pid in (s.get("people") or {}).get("any", []):
+                return []          # always there already
+            want = [ph for ph in phases if ph in all_ph] if phases else ["any"]
             added = []
             for ph in want:
                 lst = s.setdefault("people", {}).setdefault(ph, [])
@@ -266,7 +301,8 @@ class PlasticoModule(Module):
 
     def provides(self) -> list[Interface]:
         return [Interface("world.catalog", self.catalog,
-                          "() -> {world, scenes: [[id, name]], people: [[id, name]], phases, acts: [[id, name]], start, godot, "
+                          "() -> {world, scenes: [[id, name]], people: [[id, name]], acts: [[id, name]], "
+                          "groups: [{id, name, acts, states: [[id, name]], game}], states: {act id: [[id, name]]}, start, godot, "
                           "hierarchy: [{id, name, act, parent, charts, charts_pinned, charts_from_steps, steps, kind, delete}], "
                           "locks: [{from, to, needs, type, where}]}. `scenes` leaves out scenes marked to delete; `hierarchy` "
                           "has them all, each with the scene it is in and its charts: the ones with steps placed in it "
@@ -274,7 +310,7 @@ class PlasticoModule(Module):
                 Interface("world.add_person", self.add_person, "(name) -> id: a new person in the world, or the one already called that."),
                 Interface("world.add_scene", self.add_scene, "(name, act) -> id: a new scene idea in that act, or the one already called that."),
                 Interface("world.place_person", self.place_person,
-                          "(person id, scene id, phases=None) -> [phases added]: puts the person in the scene at those times of day (none: all).")]
+                          "(person id, scene id, states=None) -> [states added]: puts the person in the scene in those states of its act (none: always).")]
 
     # --- HTTP: Plastico's own API, one world per project ---
     def handle(self, h, method: str, parts: list[str], q: dict):

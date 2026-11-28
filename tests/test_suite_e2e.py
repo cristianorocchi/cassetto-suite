@@ -142,7 +142,7 @@ def test_the_suite_end_to_end(server, browser, home):
     wait_saved(page)
     w = world_on_disk(project)
     by = {s["id"]: s for s in w["scenes"]}
-    assert w["v"] == 2 and by["lamp_room"]["parent"] == "lighthouse" and by["lamp_room"]["act"] == "1"
+    assert w["v"] == 3 and by["lamp_room"]["parent"] == "lighthouse" and by["lamp_room"]["act"] == "1"
     assert all(on_grid(s) for s in w["scenes"])
     lh, lr = by["lighthouse"], by["lamp_room"]
     assert lr["z"] > lh["z"]          # below its parent on the map (touching it when that edge is free: tests/model.test.mjs)
@@ -619,11 +619,11 @@ def test_plastico_and_puzzle_charts_as_one(server, browser, home):
     page.keyboard.press("Escape")
     pz.wait_for_selector(".pick-pop", state="detached")
     # the world doesn't put Elda in the Pub: the step says so, and puts her there in one click
-    assert "doesn’t put Elda in Pub at any time" in pz.text_content("#f-not-there")
+    assert "doesn’t put Elda in Pub in any state" in pz.text_content("#f-not-there")
     pz.click("#f-put-there")
     pz.wait_for_selector("#f-not-there", state="detached")
     pub_now = next(s for s in world_on_disk(core.project.path)["scenes"] if s["id"] == "pub")
-    assert pub_now["people"] == {"day": ["elda"], "night": ["elda"]}
+    assert pub_now["people"] == {"any": ["elda"]}               # the step names no state: always
     # ... and Who now lists her first, as someone in the Pub
     pz.click("#f-who")
     heads = pz.eval_on_selector_all(".pick-pop .pick-head", "hs => hs.map(h => h.textContent)")
@@ -759,6 +759,89 @@ def test_dragging_in_the_tree_moves_scenes_and_charts(server, browser, home):
     page.wait_for_selector(f"#tree-body .tn[data-key='chart:pub:{cid}']")
     drag(f"chart:pub:{cid}", "scene:cellar")
     until(lambda: scenes()["cellar"]["charts"] == [cid] and scenes()["pub"]["charts"] == [])
+    assert not errors, errors
+
+
+def test_states_change_who_is_there_and_which_charts_are_active(server, browser, home):
+    """Groups of states: "Weather" holds for acts 1 and 2 (rain falls on both), "Story" for act 1. The tree lists
+    them and picks the state on screen for every module; a chart can be off in a state (from Plastico's scene
+    panel or Puzzle Charts); people follow the states."""
+    from plastico import store
+    core, srv = server()
+    core.create_project(home / "fallout", "Fallout")
+    root = core.project.path / "plastico"
+    coffee = core.call("puzzles.create_chart", "Coffee machine", 1)
+    w = store.load("world", root)
+    w["acts"].append({"id": "2", "name": "", "start": ""})
+    w["groups"] = [{"id": "weather", "name": "Weather", "acts": ["1", "2"], "states": [{"id": "sun", "name": "Sun"}, {"id": "rain", "name": "Rain"}]},
+                   {"id": "story", "name": "Story", "acts": ["1"], "states": [{"id": "before", "name": "Before the fallout"}, {"id": "after", "name": "After the fallout"}]}]
+    w["people"] = [{"id": "wife", "name": "Wife"}]
+    w["scenes"] = [{"id": "home", "name": "Home", "kind": "inside", "act": "1", "x": 3, "z": 2,
+                    "people": {"before": ["wife"]}, "charts": [coffee]},
+                   {"id": "shop", "name": "Shop", "kind": "inside", "act": "2", "x": 20, "z": 2}]
+    store.save(w, root=root)
+    page, errors = open_shell(browser, srv.url)
+    pl = frame(page, "plastico")
+    pl.wait_for_selector("#loading", state="hidden")
+    page.wait_for_selector("#tree:not([hidden]) .tn.state")
+    # the tree: each act's groups with their states, the first of each on screen
+    names = [r[2] for r in tree_rows(page)]
+    assert names[:7] == ["Act 1", "Weather", "Sun", "Rain", "Story", "Before the fallout", "After the fallout"], names
+    assert names[names.index("Act 2"):][:4] == ["Act 2", "Weather", "Sun", "Rain"], names
+    assert "cur" in page.get_attribute("#tree-body .tn[data-key='state:1:before']", "class")
+    # rain picked under act 1: it rains on act 2 too, and Plastico shows it
+    page.click("#tree-body .tn[data-key='state:1:rain']")
+    page.wait_for_selector("#tree-body .tn.state.cur[data-key='state:2:rain']")
+    pl.wait_for_function("[...document.querySelectorAll('#phases button')].some(b => b.textContent === 'Rain' && b.getAttribute('aria-pressed') === 'true')")
+    # Plastico's panel of the scene: the wife is there before (in the rain too), and the chart can be turned off after
+    page.click("#tree-body .tn.scene >> text=Home")
+    pl.wait_for_selector("#scene-charts .chart-states")
+    assert "Wife" in pl.text_content(".lab-people")
+    page.wait_for_timeout(700)                                       # the panel settles (it redraws as the module reloads)
+    pl.click("#scene-charts .chart-states >> text=After the fallout")
+    for _ in range(60):
+        if charts_on_disk(core.project.path)[0].get("states") == ["before"]:
+            break
+        page.wait_for_timeout(100)
+    assert charts_on_disk(core.project.path)[0]["states"] == ["before"]
+    # the tree picks "after" for every module: Plastico shows it, the wife isn't there, the chart is off
+    page.wait_for_timeout(500)
+    page.click("#tree-body .tn[data-key='state:1:after']")
+    pl.wait_for_function("[...document.querySelectorAll('#phases button')].some(b => b.textContent === 'After the fallout' && b.getAttribute('aria-pressed') === 'true')")
+    pl.wait_for_function("!document.querySelector('.lab-people')")
+    pl.wait_for_selector("#scene-charts li.chart-here.off")
+    page.wait_for_selector(f"#tree-body .tn.chart.off[data-key='chart:home:{coffee}']")
+    # back to "before" from Plastico's own buttons: the tree follows
+    pl.click("#phases >> text=Before the fallout")
+    page.wait_for_selector("#tree-body .tn.state.cur[data-key='state:1:before']")
+    page.wait_for_selector(f"#tree-body .tn.chart:not(.off)[data-key='chart:home:{coffee}']")
+    # Puzzle Charts: the chart's Active in, and a step only in a state the chart is off in is flagged
+    page.click(f"#tree-body .tn[data-key='chart:home:{coffee}']")
+    pz = frame(page, "puzzles")
+    pz.wait_for_selector("#f-chart-states")
+    assert pz.get_attribute("#f-chart-states [data-state='after']", "aria-pressed") == "false"
+    pz.click("#f-chart-states [data-state='after']")                  # on again in every state
+    for _ in range(60):
+        if charts_on_disk(core.project.path)[0].get("states") == []:
+            break
+        page.wait_for_timeout(100)
+    assert charts_on_disk(core.project.path)[0]["states"] == []
+    # World settings: a third state of the story, and the story shared with act 2 as well
+    page.click("#tabs >> text=Plastico")
+    pl.click("#btn-more")
+    pl.click("#menu-more >> text=World settings")
+    pl.click(".group-edit[data-group='story'] >> text=+ State")
+    page.keyboard.type("Years later")                                  # the new state's name is selected, ready to type over
+    pl.click(".group-edit[data-group='story'] .group-head >> text=Act 2")
+    pl.click(".modal-foot >> text=Save")
+    story = lambda: next(g for g in store.load("world", root)["groups"] if g["id"] == "story")  # noqa: E731
+    for _ in range(60):
+        if len(story()["states"]) == 3 and story()["acts"] == ["1", "2"]:
+            break
+        page.wait_for_timeout(100)
+    assert [s["name"] for s in story()["states"]] == ["Before the fallout", "After the fallout", "Years later"] and story()["acts"] == ["1", "2"]
+    page.wait_for_selector("#tree-body .tn.state >> text=Years later")
+    page.wait_for_selector("#tree-body .tn[data-key='stategroup:2:story']")
     assert not errors, errors
 
 

@@ -11,7 +11,7 @@ It opens in its own window at http://127.0.0.1:8766/. Closing the terminal windo
 
 - **Skeleton / Pictures.** Skeleton shows the structure only. Pictures lays each outdoor scene's
   picture on its plate and stands each indoor scene's picture on the back edge of its room, using the
-  game's own art for the chosen time of day. A scene with scenes inside it, and a scene inside another,
+  game's own art for the state on screen (a phase of the game). A scene with scenes inside it, and a scene inside another,
   lays its picture flat on its own block, so the pictures of a group never cover each other. Seen from
   above (Map view, or the camera turned to look nearly straight down), every picture lies flat on its
   block, the indoor rooms' too; tilted again, those stand back up. Pictures
@@ -25,10 +25,13 @@ It opens in its own window at http://127.0.0.1:8766/. Closing the terminal windo
   (an idea, or ready to build). Red means it is marked to delete. Floors stack: a scene on floor 1
   floats above street level, one on −1 sits below it, with a post down to its footprint.
 - **Ways.** A solid line is in the game and a dashed one is planned. An arrow marks a one-way path.
-  A badge shows a lock (the item or flag it needs) or a way that is only open at some times of day.
+  A badge shows a lock (the item or flag it needs) or a way that is only open in some states.
   A grey "?" stub is an exit in the game that leads nowhere yet.
-- **Time of day** (morning, day, sunset, midnight) switches the pictures, who is where, and which
-  scenes and ways are open.
+- **States.** Groups of states say what changes over time: Weather (sun, rain), Story (before and after
+  the fallout), Time of day... One state of each group is on at a time, and a group can hold for several
+  acts (it rains on both). The view bar shows the groups of the act on screen (keys 1–9); picking a state
+  switches who is where, which scenes and ways are open, and which puzzle charts are active. A Godot
+  game's phases are a group of every act, and switch the pictures too.
 - **Acts and areas** (left panel). An act can be shown on its own. Areas colour the blocks.
 - **Labels** shrink to the name only, or to a dot, when they would cover a more important one.
   Hover a dot to read it.
@@ -45,14 +48,16 @@ It opens in its own window at http://127.0.0.1:8766/. Closing the terminal windo
   Shift places freely.
 - **Puzzle charts of a scene:** the scene's panel lists the charts put with it. Open one, add any
   chart of the project, make a new one for the scene, or take one off (the chart itself stays).
+  *Active in* says in which states a chart is active, group by group (the same in every scene it is in);
+  one not active in the state on screen is struck through.
 - **Move a scene:** drag it. Hold Shift for free placement instead of the half-unit grid. While you
   hold it, the wheel takes it up a floor (wheel away from you) or down one; with nothing held, the
   wheel zooms.
 - **Join two scenes:** drag the dot on a scene's label onto another scene. Drop it on empty ground
   to make a new scene that is already joined.
-- **Select** a scene or a way to edit it on the right: name, kind, act, area, floor, status, opening
-  times, people per time of day, locks, notes.
-- **People:** under People here, + person adds someone at a time of day and × takes them out. Grey
+- **Select** a scene or a way to edit it on the right: name, kind, act, area, floor, status, the
+  states it is open in, people per state, locks, notes.
+- **People:** under People here, + person adds someone in a state and × takes them out. Grey
   names come from the game: × on one only marks them as leaving in the plan (struck through, ↺ to
   keep them), and the checks list it as a change to make in Godot.
 - **Delete:** Delete key, or the button on the panel. A scene that is in the game is only *marked*
@@ -73,7 +78,7 @@ It opens in its own window at http://127.0.0.1:8766/. Closing the terminal windo
   - hubs.
   Click a check to see the scenes it means.
 - **Route** (R): click two scenes to see the shortest way between them. You can ask for the route
-  with every lock closed, or with only what is open at this time of day.
+  with every lock closed, or with only what is open in the states on screen.
 - **Play test** (P): walk the world as the player would. Lit scenes are the ones you can reach now.
   Toggle the keys you have (items and flags), and limit it to what is already in the game.
 
@@ -123,7 +128,7 @@ so its scene pickers match the world. The steps are in `CLAUDE.md`.
 
 **New world** starts empty (a plan only: sketch a new game, or an act kept apart from the rest) or
 reads another Godot project in `~/Desktop/Projects`. A world without Godot can still have acts,
-areas, people and times of day (World settings).
+groups of states, areas and people (World settings).
 
 ## Files
 

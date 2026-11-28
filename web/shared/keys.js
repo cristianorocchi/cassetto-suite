@@ -78,7 +78,7 @@
     ['plastico.people', 'Show or hide people', []],
     ['plastico.steps', 'Show or hide puzzle steps', []],
   ]);
-  add('plastico', 'Times of day', Array.from({ length: 9 }, (_, i) => [`plastico.phase${i + 1}`, `Time of day ${i + 1}`, [String(i + 1)], i === 0 ? 'In the order the world lists them' : '']));
+  add('plastico', 'States', Array.from({ length: 9 }, (_, i) => [`plastico.phase${i + 1}`, `State ${i + 1}`, [String(i + 1)], i === 0 ? 'Of the act on screen, in the order the act lists them' : '']));
   add('puzzles', 'Edit', [
     ['puzzles.undo', 'Undo', ['Ctrl+Z']],
     ['puzzles.redo', 'Redo', ['Ctrl+Shift+Z', 'Ctrl+Y']],

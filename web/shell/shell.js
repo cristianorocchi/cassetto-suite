@@ -41,6 +41,7 @@
     down: false, godot: null, refsTimer: 0,
     tree: null, treeSel: null, treeTimer: 0, collapsed: new Set(), treeOn: lsGet('cassetto:tree') !== 'off',
     act: 'all',               // the act on screen in every module (see setAct)
+    states: {},               // the state on screen of each group of states, {group id: state id}, in every module (see setState)
   };
   const modules = () => (S.state ? S.state.modules : []);
   const project = () => (S.state ? S.state.project : null);
@@ -81,6 +82,8 @@
         selected(t) { if (id === S.active || !t) treeSelect(t, true); },
         act: () => S.act,
         setAct: (a, follow) => setAct(a, id, follow),
+        state: (g) => S.states[g] || '',
+        setState: (g, st) => setState(g, st, id),
         error: (msg) => toast(msg, 'bad'),
         settings: (pane) => openSettings(pane || 'keys'),
       };
@@ -97,6 +100,23 @@
     if (project()) lsSet(`cassetto:act:${project().id}`, a);
     for (const id of S.links.keys()) if (id !== from) emitTo(id, 'act', { act: a });
     renderTree();
+  }
+  // The state on screen of a group of states (Weather: rain; Story: after the fallout), one for the whole suite
+  // like the act, and the same in every act the group holds for: Plastico shows its people, ways and charts
+  // then, the tree follows.
+  function setState(group, st, from) {
+    group = String(group || ''); st = String(st || '');
+    if (!group || S.states[group] === st) return;
+    if (st) S.states[group] = st; else delete S.states[group];
+    if (project()) lsSet(`cassetto:states:${project().id}`, JSON.stringify(S.states));
+    for (const id of S.links.keys()) if (id !== from) emitTo(id, 'state', { group, state: st });
+    renderTree();
+  }
+  const treeGroups = () => (S.tree && S.tree.cat && S.tree.cat.groups) || [];
+  /** The state of a group on screen: the one picked, else the group's first. */
+  function stateOn(group) {
+    const g = treeGroups().find((x) => x.id === group); if (!g || !g.states.length) return '';
+    return g.states.some((s) => s[0] === S.states[group]) ? S.states[group] : g.states[0][0];
   }
   async function flushAll() {
     const jobs = [];
@@ -255,6 +275,7 @@
       resetFrames();
       S.godot = null;
       S.act = (now && lsGet(`cassetto:act:${project().id}`)) || 'all';   // before the pages load: they read it
+      try { S.states = (now && JSON.parse(lsGet(`cassetto:states:${project().id}`) || '{}')) || {}; } catch (e) { S.states = {}; }
       if (now) {
         const want = new URLSearchParams(location.hash.slice(1));
         const first = want.get('module') || lsGet('cassetto:module');
@@ -336,6 +357,8 @@
     sceneIn: 'M3 4h10v8H3z M6 7h4v3H6z',
     chart: ICONS.puzzles,
     charts: FOLDER,
+    states: 'M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M3.8 12.2l1.4-1.4M10.8 5.2l1.4-1.4 M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z',
+    state: 'M8 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z',
     group: 'M2 4.5h12M2 8h12M2 11.5h8',
   };
   // While the project is being closed, opened or replaced, the server may already have no project while
@@ -358,7 +381,10 @@
   $('#btn-tree').addEventListener('click', toggleTree);
   $('#tree-collapse').addEventListener('click', () => {
     if (!S.tree || !S.tree.cat) return;
-    for (const a of S.tree.cat.acts) { S.collapsed.add(`act:${a[0]}`); S.collapsed.add(`actcharts:${a[0]}`); }
+    for (const a of S.tree.cat.acts) {
+      S.collapsed.add(`act:${a[0]}`); S.collapsed.add(`actcharts:${a[0]}`);
+      for (const g of S.tree.cat.groups || []) S.collapsed.add(`stategroup:${a[0]}:${g.id}`);
+    }
     for (const sc of S.tree.cat.hierarchy || []) S.collapsed.add(`scene:${sc.id}`);
     S.collapsed.add('group:loose'); saveCollapsed(); renderTree();
   });
@@ -537,13 +563,24 @@
     const stepsOf = (c) => (typeof c.steps === 'number' ? c.steps : c.nodes.filter((n) => n.kind !== 'goal' && n.kind !== 'setup').length);
     const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
     // a chart under a scene: it has steps placed there (the number shown), or it is pinned there in Plastico
+    // a chart not active with the states on screen is struck through: in each group it names, the state on
+    // must be one of them (its states: none = every state)
+    const groups = cat.groups || [];
+    const groupOf = new Map(groups.flatMap((g) => g.states.map((s) => [s[0], g.id])));
+    const stName = new Map(groups.flatMap((g) => g.states.map((s) => [s[0], s[1]])));
+    const offNow = (c) => {
+      const known = (c.states || []).filter((s) => groupOf.has(s));
+      return [...new Set(known.map((s) => groupOf.get(s)))].some((g) => !known.includes(stateOn(g)));
+    };
+    const onNames = (act) => groups.filter((g) => g.acts.includes(act) && g.states.length).map((g) => stName.get(stateOn(g.id))).join(' + ');
+    const offNote = (c) => (offNow(c) ? ` · not active in ${onNames(String(c.act))}` : '');
     const chartLeaf = (q, cid, depth) => {
       const c = charts.get(cid);
       const here = (q.charts_from_steps || {})[cid] || 0;
-      const n = treeNode(`chart:${q.id}:${cid}`, 'chart' + (c ? '' : ' missing') + (sel.chart === cid ? ' sel' : ''), IC.chart,
+      const n = treeNode(`chart:${q.id}:${cid}`, 'chart' + (c ? '' : ' missing') + (c && offNow(c) ? ' off' : '') + (sel.chart === cid ? ' sel' : ''), IC.chart,
         c ? c.name : 'Missing chart', c ? (here || null) : null, depth, null, false,
         () => { if (!c) { toast('That chart isn’t in the project any more: take it off the scene in Plastico.', 'bad'); return; } treeSelect({ chart: cid }); show('puzzles', { chart: cid }); },
-        c ? `${c.name} · act ${c.act} · ${here ? `${plural(here, 'step')} in ${q.name}, of ${stepsOf(c)}` : `pinned to ${q.name}, no steps there yet`}` : `Chart ${cid} was deleted`,
+        c ? `${c.name} · act ${c.act} · ${here ? `${plural(here, 'step')} in ${q.name}, of ${stepsOf(c)}` : `pinned to ${q.name}, no steps there yet`}${offNote(c)}` : `Chart ${cid} was deleted`,
         c ? { kind: 'chart', id: cid, name: c.name, act: c.act, from: q.id, fromName: q.name || q.id, pinned: (q.charts_pinned || []).includes(cid) } : null);
       return n;
     };
@@ -560,9 +597,9 @@
     // a chart under its act: every chart once, in the act it is for, with all its steps
     const inScenes = new Map();
     for (const q of scenes) for (const cid of Object.keys(q.charts_from_steps || {})) inScenes.set(cid, (inScenes.get(cid) || 0) + 1);
-    const actChart = (c, depth, keyAt) => treeNode(`chart:${keyAt}:${c.id}`, 'chart' + (sel.chart === c.id ? ' sel' : ''), IC.chart, c.name, stepsOf(c), depth, null, false,
+    const actChart = (c, depth, keyAt) => treeNode(`chart:${keyAt}:${c.id}`, 'chart' + (offNow(c) ? ' off' : '') + (sel.chart === c.id ? ' sel' : ''), IC.chart, c.name, stepsOf(c), depth, null, false,
       () => { treeSelect({ chart: c.id }); show('puzzles', { chart: c.id }); },
-      `${c.name} · act ${c.act} · ${plural(stepsOf(c), 'step')}${inScenes.get(c.id) ? `, in ${plural(inScenes.get(c.id), 'scene')}` : ', none placed in a scene yet'}`,
+      `${c.name} · act ${c.act} · ${plural(stepsOf(c), 'step')}${inScenes.get(c.id) ? `, in ${plural(inScenes.get(c.id), 'scene')}` : ', none placed in a scene yet'}${offNote(c)}`,
       { kind: 'chart', id: c.id, name: c.name, act: c.act, from: '' });
     const byName = (a, b) => a.name.localeCompare(b.name);
     const root = el('ul'); root.setAttribute('role', 'group');
@@ -575,7 +612,17 @@
       const ck = `actcharts:${aid}`;
       const group = own.length ? [treeNode(ck, 'group charts', IC.charts, 'Act charts', own.length, 1, own.map((c) => actChart(c, 2, `act${aid}`)),
         !S.collapsed.has(ck), null, `The puzzle charts of act ${aid}. Drag a chart here to move it to this act.`, null, { type: 'actcharts', act: aid })] : [];
-      const kids = [...group, ...top.map((q) => sceneNode(q, 1))];
+      // its groups of states, each with its states, the one on screen marked; picking one puts the group in it
+      // in every module and every act the group holds for (rain on both acts)
+      const statesGroups = groups.filter((g) => g.acts.includes(aid) && g.states.length).map((g) => {
+        const gk = `stategroup:${aid}:${g.id}`, others = g.acts.filter((a) => a !== aid);
+        const rows = g.states.map(([sid, snm]) => treeNode(`state:${aid}:${sid}`, 'state' + (stateOn(g.id) === sid ? ' cur' : ''), IC.state, snm, null, 2, null, false,
+          () => { setAct(aid, 'shell'); setState(g.id, sid, 'shell'); },
+          `${g.name}: ${snm}${others.length ? ` · in acts ${g.acts.join(', ')} at once` : ''}${stateOn(g.id) === sid ? ' (on screen now)' : ''}`));
+        return treeNode(gk, 'group states' + (others.length ? ' shared' : ''), IC.states, g.name, others.length ? `also ${others.length > 1 ? 'acts' : 'act'} ${others.join(', ')}` : null, 1, rows, !S.collapsed.has(gk), null,
+          `${g.name}: one of its states is on at a time${others.length ? `, the same in acts ${g.acts.join(', ')}` : ''}. People, ways and puzzle charts can differ from one to the next. Edit the groups in Plastico’s World settings.`);
+      });
+      const kids = [...statesGroups, ...group, ...top.map((q) => sceneNode(q, 1))];
       root.append(treeNode(key, 'act' + (S.act === aid ? ' cur' : ''), IC.act, `Act ${aid}${aname ? ' · ' + aname : ''}`, count, 0, kids.length ? kids : null,
         !S.collapsed.has(key), () => { treeSelect(null); show('plastico', { act: aid }); },
         `${plural(count, 'scene')} and ${plural(own.length, 'puzzle chart')} · show this act in Plastico${S.act === aid ? ' (it is on screen now)' : ''}`,

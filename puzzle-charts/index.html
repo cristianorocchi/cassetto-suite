@@ -274,6 +274,9 @@ h2,h3{margin:0;text-wrap:balance}
 .focusbar .btn.icon{width:28px;padding:0;justify-content:center}
 .focusbar .btn.icon svg{width:14px;height:14px}
 .seg{display:flex;flex-wrap:wrap;gap:4px}
+.state-groups{display:flex;flex-direction:column;gap:6px}
+.state-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.state-group .sg{min-width:60px;font:500 11.5px/1 var(--f-ui);color:var(--muted)}
 .seg button{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);cursor:pointer;font:500 12px/1 var(--f-ui)}
 .seg button:hover:not(:disabled){background:var(--surface-2)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
@@ -467,7 +470,7 @@ const KINDS = {
   action:  { label: 'Action',        hint: 'Something the player does: look, talk, use, give, open.', idLabel: 'Flag it sets', idPh: 'asked_about_key', title: 'New action' },
   item:    { label: 'Get item',      hint: 'The player picks up an item or is given one.', idLabel: 'Item id (items/<id>.tres)', idPh: 'rope', title: 'An item' },
   combo:   { label: 'Combined item', hint: 'Items put together in the inventory. Link the items that go into it.', idLabel: 'Item id (items/<id>.tres)', idPh: 'rope_and_hook', title: 'A combined item' },
-  phase:   { label: 'Time',          hint: 'A time of day has to come round.', idLabel: '', idPh: '', title: 'Time passes' },
+  phase:   { label: 'State',         hint: 'The act has to be in a state: a time of day comes round, or the story moves on (after the fallout…).', idLabel: '', idPh: '', title: 'The state changes' },
 };
 const LEGACY_KINDS = { info: 'subgoal', talk: 'action', place: 'subgoal' };   // kinds used before 2026-11-23
 const GLYPHS = {
@@ -486,7 +489,10 @@ let SCENES_OF_CHART = new Map();   // chart id -> the world's scenes it is pinne
 let LOCKS = [];                    // the world's locked ways: [{from, to, needs, type, where}]
 let SCENE_INFO = new Map();        // scene id -> {id, name, act, parent, kind, inGame, status}: the world's scenes (Plastico)
 let SCENE_ORDER = [];              // [[scene id, depth]]: by act, by name, each scene followed by the scenes inside it
-let PEOPLE_AT = null;              // {scene: {time of day: [person ids]}}: who the world puts where; null when it doesn't say
+let PEOPLE_AT = null;              // {scene: {state: [person ids]}}: who the world puts where; null when it doesn't say
+let STATES = null;                 // {act: [[state id, name]]}: each act's states, from the world; null when it doesn't say
+let GROUPS = [];                   // [{id, name, acts, states: [[id, name]]}]: the world's groups of states (one on at a time)
+let GROUP_OF = new Map();          // state id -> its group's id
 let PERSON_NAME = Object.fromEntries(PEOPLE.map(([id, n]) => [id, n.split(',')[0]]));
 // The scene and people lists follow Plastico, the 3D world model, when Claude has synced the two
 // (database doc meta/world). Until then, and if that doc can't be read, the lists above are used.
@@ -515,12 +521,25 @@ function applyWorld(d) {
   }
   // the locked ways in the world: a step that gives the item or sets the flag a lock needs opens it
   LOCKS = (Array.isArray(d.locks) ? d.locks.slice(0, 1000) : []).filter((l) => l && typeof l.needs === 'string' && typeof l.from === 'string' && typeof l.to === 'string');
-  // the acts and the times of day are the world's: a chart's act is one of Plastico's acts
+  // the acts and their states are the world's: a chart's act is one of Plastico's acts, and its steps'
+  // states are that act's (times of day, before and after something happens...)
   const acts = (Array.isArray(d.acts) ? d.acts.slice(0, 99) : []).map((a) => (Array.isArray(a) ? [Number(a[0]), str(a[1])] : null))
     .filter((a) => a && Number.isInteger(a[0]) && a[0] >= 1 && a[0] <= 99);
   if (acts.length) { ACTS = acts; ACTS_FROM_WORLD = true; }
-  const phases = (Array.isArray(d.phases) ? d.phases.slice(0, 12) : []).filter((x) => typeof x === 'string' && x.trim());
-  if (phases.length) PHASES = phases;
+  if (d.states && typeof d.states === 'object' && !Array.isArray(d.states)) {
+    STATES = {};
+    for (const [a, l] of Object.entries(d.states).slice(0, 99)) STATES[String(a)] = (pairList(l) || []).slice(0, 80);
+  } else if (Array.isArray(d.phases)) {      // a world from before states: one list of times of day for every act
+    const ph = d.phases.slice(0, 12).filter((x) => typeof x === 'string' && x.trim());
+    STATES = {}; for (const [a] of ACTS) STATES[String(a)] = ph.map((p) => [p, p[0].toUpperCase() + p.slice(1)]);
+  }
+  GROUPS = (Array.isArray(d.groups) ? d.groups.slice(0, 40) : []).filter((g) => g && typeof g.id === 'string')
+    .map((g) => ({ id: g.id, name: str(g.name) || g.id, acts: (Array.isArray(g.acts) ? g.acts : []).map(String), states: pairList(g.states) || [] }));
+  if (!GROUPS.length && STATES) {     // a world that gives states per act only: one group each
+    for (const [a, l] of Object.entries(STATES)) if (l.length) GROUPS.push({ id: `act${a}`, name: 'States', acts: [a], states: l });
+  }
+  GROUP_OF = new Map(GROUPS.flatMap((g) => g.states.map((s) => [s[0], g.id])));
+  syncPhases();
   // each scene's act, the scene it is in, and whether it is in the game yet
   SCENE_INFO = new Map();
   for (const sc of Array.isArray(d.hierarchy) ? d.hierarchy.slice(0, 2000) : []) {
@@ -537,15 +556,43 @@ function applyWorld(d) {
   PEOPLE_AT = d.people_at && typeof d.people_at === 'object' && !Array.isArray(d.people_at) ? d.people_at : null;
   return true;
 }
-/** Who the world puts in a scene, at one time of day or (none) at any; null when the world doesn't say. */
+/** The states of an act (on its own, with no world: the four times of day the page always had). */
+const statesOf = (act) => (STATES ? (STATES[String(act)] || []).map((s) => s[0]) : PHASES_ALONE);
+/** PHASES: the states of the act of the chart on screen. Called before drawing. */
+function syncPhases() { const c = cur(); PHASES = statesOf(c ? c.act : 1); }
+/** A state's name, as the chart's act (else any act) has it. */
+function phaseName(id) {
+  if (!id) return '';
+  if (STATES) {
+    const c = cur(), mine = (STATES[String(c ? c.act : '')] || []).find((s) => s[0] === id);
+    if (mine) return mine[1];
+    for (const l of Object.values(STATES)) { const h = l.find((s) => s[0] === id); if (h) return h[1]; }
+  }
+  return id[0].toUpperCase() + id.slice(1);
+}
+/** The groups of states of an act. */
+const groupsOf = (act) => GROUPS.filter((g) => g.acts.includes(String(act)) && g.states.length);
+/** Whether a chart is active with that state on (the other groups in any state): in the state's group, the
+ * chart names no state or names that one. */
+function chartActiveWith(c, st) {
+  const g = GROUP_OF.get(st); if (!g) return true;
+  const mine = (c.states || []).filter((s) => GROUP_OF.get(s) === g);
+  return !mine.length || mine.includes(st);
+}
+/** Its states, said in a few words: "Rain" + "Before the fallout or After"... ('' when it names none). */
+function chartStatesText(c) {
+  return groupsOf(c.act).map((g) => (c.states || []).filter((s) => GROUP_OF.get(s) === g.id)).filter((l) => l.length)
+    .map((l) => l.map(phaseName).join(' or ')).join(', and ');
+}
+/** Who the world puts in a scene, in one state or (none) in any; null when the world doesn't say. */
 function peopleIn(scene, when) {
   if (!PEOPLE_AT) return null;
   const per = PEOPLE_AT[scene] || {};
   return new Set(when ? per[when] || [] : Object.values(per).flat());
 }
-/** The times of day the world puts a person in a scene. */
+/** The states the world puts a person in a scene in. */
 const timesIn = (scene, who) => { const per = (PEOPLE_AT && PEOPLE_AT[scene]) || {}; return PHASES.filter((ph) => (per[ph] || []).includes(who)); };
-/** The scenes the world puts a person in, at that time of day (none: at any), in the order of the scene lists. */
+/** The scenes the world puts a person in, in that state (none: in any), in the order of the scene lists. */
 function whereIs(who, when) {
   if (!PEOPLE_AT) return [];
   return SCENE_ORDER.map(([id]) => id).filter((id) => { const ps = peopleIn(id, when); return ps && ps.has(who); });
@@ -563,15 +610,15 @@ const moveTargets = (who, scene, when, act) => elsewhere(who, scene, when, act).
 function whereInstead(who, scene, when, act) {
   if (!PEOPLE_AT) return '';
   const nm = personName(who), w = elsewhere(who, scene, when, act);
-  const one = (id) => { const ts = when ? [] : timesIn(id, who); return sceneName(id) + (ts.length && ts.length < PHASES.length ? ` (${andList(ts)})` : ''); };
+  const one = (id) => { const ts = when ? [] : timesIn(id, who); return sceneName(id) + (ts.length && ts.length < PHASES.length ? ` (${andList(ts.map(phaseName))})` : ''); };
   const names = w.length > 3 ? `${w.slice(0, 3).map(one).join(', ')} and ${w.length - 3} more` : andList(w.map(one));
-  let s = when ? (w.length ? `At ${when} the world puts ${nm} in ${names}.` : `At ${when} the world doesn’t put ${nm} in any scene.`)
+  let s = when ? (w.length ? `In ${phaseName(when)} the world puts ${nm} in ${names}.` : `In ${phaseName(when)} the world doesn’t put ${nm} in any scene.`)
     : (w.length ? `The world puts ${nm} in ${names}.` : '');
   const here = when ? timesIn(scene, who) : [];
-  if (here.length) s += ` ${sceneName(scene)} has ${nm} at ${andList(here)}.`;
+  if (here.length) s += ` ${sceneName(scene)} has ${nm} in ${andList(here.map(phaseName))}.`;
   return s.trim();
 }
-/** Put a person in a scene at a time of day (none: at every time), in Plastico's People here. */
+/** Put a person in a scene in a state (none: in every state of its act), in Plastico's People here. */
 async function placePerson(who, scene, when) {
   await CS.call('world.place_person', who, scene, when ? [when] : null);
   if (PEOPLE_AT) { const per = PEOPLE_AT[scene] = PEOPLE_AT[scene] || {}; for (const ph of when ? [when] : PHASES) { per[ph] = per[ph] || []; if (!per[ph].includes(who)) per[ph].push(who); } }
@@ -609,7 +656,8 @@ function pickId(list, v) {
 const pickLabel = (list, id) => { if (!id) return ''; const hit = pickNames(list).find(([x]) => x === id); return hit ? hit[1] : id; };
 /** A name for something a step names that the world doesn't have yet: "stationmaster (new)" -> "Stationmaster". */
 const niceNew = (v) => { const s = v.replace(/\s*\((new|nuovo|nuova)\)\s*$/i, '').trim() || v.trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
-let PHASES = ['morning', 'day', 'sunset', 'midnight'];   // the world's times of day, when it has them
+const PHASES_ALONE = ['morning', 'day', 'sunset', 'midnight'];   // on its own (no world): times of day
+let PHASES = PHASES_ALONE;   // the states of the act of the chart on screen (syncPhases)
 let ACTS = [[1, ''], [2, ''], [3, ''], [4, '']];   // Plastico's acts and their names in Cassetto; on its own, four untitled acts
 let ACTS_FROM_WORLD = false;                         // true once the world said which acts it has
 const STATUSES = [['idea', 'Idea'], ['written', 'Written'], ['built', 'In game']];
@@ -665,7 +713,7 @@ function normalize(id, d) {
   const kinds = new Set(KIND_LIST);
   const nodes = (Array.isArray(d.nodes) ? d.nodes : []).filter((n) => n && typeof n.id === 'string').map((n) => ({
     id: n.id, kind: kinds.has(n.kind) ? n.kind : (LEGACY_KINDS[n.kind] || 'action'), title: str(n.title), scene: str(n.scene), who: str(n.who),
-    when: PHASES.includes(n.when) ? n.when : '', gid: str(n.gid), status: STATUS_LABEL[n.status] ? n.status : 'idea',
+    when: str(n.when).slice(0, 80), gid: str(n.gid), status: STATUS_LABEL[n.status] ? n.status : 'idea',     // a state of the chart's act (one it doesn't have reads as any)
     notes: str(n.notes), x: num(n.x), y: num(n.y),
   }));
   const ids = new Set(nodes.map((n) => n.id));
@@ -674,18 +722,20 @@ function normalize(id, d) {
     if (!e || !ids.has(e.from) || !ids.has(e.to) || e.from === e.to) return false;
     const k = e.from + '>' + e.to; if (seen.has(k)) return false; seen.add(k); return true;
   }).map((e) => ({ from: e.from, to: e.to }));
-  return { id, name: str(d.name) || 'Untitled chart', act: Number.isInteger(d.act) && d.act >= 1 && d.act <= 99 ? d.act : 1, notes: str(d.notes),
+  // states: the states of its act the chart is active in (none: every state)
+  const states = [...new Set((Array.isArray(d.states) ? d.states : []).filter((s) => typeof s === 'string' && s).map((s) => s.slice(0, 80)))].slice(0, 40);
+  return { id, name: str(d.name) || 'Untitled chart', act: Number.isInteger(d.act) && d.act >= 1 && d.act <= 99 ? d.act : 1, states, notes: str(d.notes),
     nodes, edges, auto: d.auto !== false, createdAt: num(d.createdAt) || Date.now(), updatedAt: num(d.updatedAt), rev: str(d.rev) };
 }
 function serialize(c) {
   return {
-    v: 1, name: c.name, act: c.act, notes: c.notes,
+    v: 2, name: c.name, act: c.act, states: c.states || [], notes: c.notes,
     nodes: c.nodes.map((n) => ({ id: n.id, kind: n.kind, title: n.title, scene: n.scene, who: n.who, when: n.when, gid: n.gid, status: n.status, notes: n.notes, x: Math.round(n.x), y: Math.round(n.y) })),
     edges: c.edges.map((e) => ({ from: e.from, to: e.to })),
     auto: c.auto !== false, createdAt: c.createdAt, updatedAt: c.updatedAt, rev: c.rev,
   };
 }
-function snapshotOf(c) { return JSON.stringify({ name: c.name, act: c.act, notes: c.notes, nodes: c.nodes, edges: c.edges }); }
+function snapshotOf(c) { return JSON.stringify({ name: c.name, act: c.act, states: c.states, notes: c.notes, nodes: c.nodes, edges: c.edges }); }
 
 /* ------------------------------------------------------------------ analysis */
 function analyze(c) {
@@ -771,18 +821,22 @@ function analyze(c) {
     const other = new Map();
     for (const n of c.nodes) { const a = sceneAct(n.scene); if (a && a !== String(c.act)) { if (!other.has(n.scene)) other.set(n.scene, []); other.get(n.scene).push(n); } }
     for (const [sc, ns] of other) issues.push({ level: 'warn', head: 'In another act', text: `${listNames(ns.map((n) => nodeTitle(n)))} ${ns.length > 1 ? 'are' : 'is'} in ${sceneName(sc)}, a scene of act ${sceneAct(sc)}; this chart is act ${c.act}. Pick a scene of act ${c.act}, or move the chart to act ${sceneAct(sc)}.`, nodes: ns.map((n) => n.id) });
-    // someone in a scene at a time of day when the world (Plastico's People here) doesn't put them there
+    // a step only in a state the chart isn't active in: it can never happen
+    const actSts = statesOf(c.act);
+    const never = c.nodes.filter((n) => n.kind !== 'phase' && n.when && actSts.includes(n.when) && !chartActiveWith(c, n.when));
+    if (never.length) issues.push({ level: 'warn', head: 'Never active then', text: `${listNames(never.map((n) => nodeTitle(n)))} ${never.length > 1 ? 'happen' : 'happens'} only in ${andList([...new Set(never.map((n) => phaseName(n.when)))])}, when this chart isn’t active. Turn the chart on in that state (Active in), or change the step’s state.`, nodes: never.map((n) => n.id) });
+    // someone in a scene in a state when the world (Plastico's People here) doesn't put them there
     if (PEOPLE_AT) {
       const off = new Map();
       for (const n of c.nodes) {
         if (!isStep(n) || !n.who || n.who === 'player' || !PERSON_NAME[n.who] || !SCENE_NAME[n.scene]) continue;
-        const when = PHASES.includes(n.when) ? n.when : '';   // as Plastico reads it: a time it doesn't have is any time
+        const when = actSts.includes(n.when) ? n.when : '';   // as Plastico reads it: a state the act doesn't have is any state
         if (peopleIn(n.scene, when).has(n.who)) continue;
         const k = `${n.who}|${n.scene}|${when}`; if (!off.has(k)) off.set(k, { when, ns: [] }); off.get(k).ns.push(n);
       }
       for (const { when, ns } of off.values()) {
         const n = ns[0], who = personName(n.who), why = whereInstead(n.who, n.scene, when, c.act);
-        issues.push({ level: 'warn', head: 'Not there then', text: `${listNames(ns.map((q) => nodeTitle(q)))} ${ns.length > 1 ? 'have' : 'has'} ${who} in ${sceneName(n.scene)}${when ? ` at ${when}` : ''}, where the world doesn’t have ${who} ${when ? 'then' : 'at any time'}.${why ? ' ' + why : ''}`,
+        issues.push({ level: 'warn', head: 'Not there then', text: `${listNames(ns.map((q) => nodeTitle(q)))} ${ns.length > 1 ? 'have' : 'has'} ${who} in ${sceneName(n.scene)}${when ? ` in ${phaseName(when)}` : ''}, where the world doesn’t have ${who} ${when ? 'then' : 'in any state'}.${why ? ' ' + why : ''}`,
           nodes: ns.map((q) => q.id), fix: { who: n.who, scene: n.scene, when, to: moveTargets(n.who, n.scene, when, c.act) } });
       }
     }
@@ -881,7 +935,7 @@ function fillNode(e, n) {
   const kind = el('span', 'n-kind'); kind.append(glyph(n.kind), document.createTextNode(KINDS[n.kind].label));
   top.append(kind, el('span', 'n-st st-' + n.status, STATUS_LABEL[n.status]));
   e.append(top, el('div', 'n-title', nodeTitle(n)));
-  const meta = [sceneName(n.scene), personName(n.who), n.when].filter(Boolean).join(' · ');
+  const meta = [sceneName(n.scene), personName(n.who), phaseName(n.when)].filter(Boolean).join(' · ');
   if (meta) e.append(el('div', 'n-meta', meta));
   if (n.gid && n.kind !== 'phase') e.append(el('div', 'n-id', n.gid));
   if (S.play && S.play.done.has(n.id)) { const i = S.play.order.indexOf(n.id); e.append(el('span', 'tick', i < 0 ? '✓' : String(i + 1))); }
@@ -961,7 +1015,7 @@ function renderOverlays() {
       empty.append(el('p', '', msg));
     } else {
       empty.append(el('h2', '', 'No puzzle charts yet'));
-      empty.append(el('p', '', 'A puzzle chart maps what each puzzle needs before it can be solved: how the scene is set up, what the player does, the items to get or combine, the time of day. Arrows run from what’s needed to what it opens, through the sub goals, down to the end goal.'));
+      empty.append(el('p', '', 'A puzzle chart maps what each puzzle needs before it can be solved: how the scene is set up, what the player does, the items to get or combine, the state the act has to be in (a time of day, before or after something happens). Arrows run from what’s needed to what it opens, through the sub goals, down to the end goal.'));
       empty.append(el('p', '', 'Start from the end goal and work backwards: what does the player need just before it?'));
       if (S.dbState === 'off') empty.append(el('p', 'note', 'Saving is off in this view. Open the page in Claude to keep your charts.'));
       if (!S.readOnly) {
@@ -1095,8 +1149,34 @@ function chartPanel(box, c) {
   const sel = el('select'); sel.id = 'f-chart-act'; sel.disabled = S.readOnly;
   const actIds = ACTS.map((a) => a[0]); if (!actIds.includes(c.act)) actIds.push(c.act);
   for (const a of actIds.sort((x, y) => x - y)) { const o = el('option', '', actLabel(a)); o.value = String(a); if (a === c.act) o.selected = true; sel.append(o); }
-  sel.onchange = () => { pushUndo(); c.act = Number(sel.value); lsSet(`${LS_LAST}:act:${c.act}`, c.id); scheduleSave(); render(); if (CS && CS.setAct) CS.setAct(String(c.act), true); };
+  // another act: the old act's states mean nothing there, so the chart is active in every state of the new one
+  sel.onchange = () => { pushUndo(); c.act = Number(sel.value); c.states = []; lsSet(`${LS_LAST}:act:${c.act}`, c.id); scheduleSave(); render(); if (CS && CS.setAct) CS.setAct(String(c.act), true); };
   box.append(field('Act', sel, SCENE_INFO.size ? 'The act in Plastico: Where offers its scenes first.' : ''));
+  // the states the chart is active in (in every scene it is in), group by group: in each group the lit states
+  // (all lit: that group doesn't matter): before the fallout, when it rains...
+  const gs = STATES ? groupsOf(c.act) : [];
+  if (gs.length) {
+    const wrap = el('div', 'state-groups'); wrap.id = 'f-chart-states';
+    for (const g of gs) {
+      const ids = g.states.map((s) => s[0]), mine = (c.states || []).filter((s) => ids.includes(s)), on = mine.length ? mine : ids;
+      const row = el('div', 'state-group'); row.append(el('span', 'sg', g.name));
+      const seg = el('div', 'seg');
+      for (const [s, snm] of g.states) {
+        const b = el('button', '', snm); b.type = 'button'; b.disabled = S.readOnly; b.dataset.state = s;
+        b.setAttribute('aria-pressed', String(on.includes(s)));
+        b.onclick = () => {
+          const next = on.includes(s) ? on.filter((x) => x !== s) : ids.filter((x) => x === s || on.includes(x));
+          if (!next.length) { toast('Keep one state lit at least: with none the chart would never be active.'); return; }
+          const others = (c.states || []).filter((x) => !ids.includes(x));
+          pushUndo(); c.states = next.length === ids.length ? others : [...others, ...next]; scheduleSave(); render();
+        };
+        seg.append(b);
+      }
+      row.append(seg); wrap.append(row);
+    }
+    const said = chartStatesText(c);
+    box.append(field('Active in', wrap, said ? `Only when ${said}: it is off otherwise, in Plastico and in the tree too.` : 'Always. Click a state to turn the chart off in it.'));
+  }
   box.append(field('Notes', textarea('f-chart-notes', c.notes, 'What the player is trying to do, and why', (v) => { beginEdit('chart-notes'); c.notes = v; scheduleSave(); })));
   if (SCENES.length) worldSection(box, c);
 
@@ -1126,12 +1206,12 @@ function chartPanel(box, c) {
         const { who, scene, when, to } = is.fix, fx = el('div', 'fixes'), k = is.nodes.length;
         for (const sc of to) {
           const m = el('button', 'btn small fix', `Move ${k > 1 ? `the ${k} steps` : 'the step'} to ${sceneName(sc)}`); m.type = 'button';
-          m.title = `Where the world has ${personName(who)}${when ? ` at ${when}` : ''}`;
+          m.title = `Where the world has ${personName(who)}${when ? ` in ${phaseName(when)}` : ''}`;
           m.onclick = () => moveSteps(c, is.nodes, sc); fx.append(m);
         }
         if (CS) {
-          const p = el('button', 'btn small fix', `Put ${personName(who)} in ${sceneName(scene)}${when ? ` at ${when}` : ''}`); p.type = 'button';
-          p.title = `Adds ${personName(who)} to People here in ${sceneName(scene)} in Plastico${when ? ` at ${when}` : ', at every time of day'}`;
+          const p = el('button', 'btn small fix', `Put ${personName(who)} in ${sceneName(scene)}${when ? ` (${phaseName(when)})` : ''}`); p.type = 'button';
+          p.title = `Adds ${personName(who)} to People here in ${sceneName(scene)} in Plastico${when ? ` in ${phaseName(when)}` : ', in every state'}`;
           p.onclick = async () => { p.disabled = true; try { await placePerson(who, scene, when); render(); } catch (e) { p.disabled = false; toast(`Couldn’t put ${personName(who)} there: ${e.message}`); } };
           fx.append(p);
         }
@@ -1347,18 +1427,19 @@ function whereGroups(c, n) {
 function whoGroups(c, n) {
   const groups = [{ items: [{ value: '', label: 'Nobody' }, { value: 'player', label: 'The player' }] }];
   const others = PEOPLE.map((p) => p[0]).filter((id) => id !== 'player');
-  const here = SCENE_NAME[n.scene] && PEOPLE_AT ? peopleIn(n.scene, n.when) : new Set();
+  const wn = PHASES.includes(n.when) ? n.when : '';     // a state the act doesn't have counts as any state
+  const here = SCENE_NAME[n.scene] && PEOPLE_AT ? peopleIn(n.scene, wn) : new Set();
   const item = (id, hint) => { const [label, sub] = nameParts(id); return { value: id, label, sub, hint }; };
   if (here.size) {
-    groups.push({ head: `In ${sceneName(n.scene)}${n.when ? ` at ${n.when}` : ''}`, items: others.filter((id) => here.has(id)).map((id) => {
-      const ts = n.when ? [] : timesIn(n.scene, id);
-      return item(id, ts.length && ts.length < PHASES.length ? ts.join(', ') : '');
+    groups.push({ head: `In ${sceneName(n.scene)}${wn ? ` in ${phaseName(wn)}` : ''}`, items: others.filter((id) => here.has(id)).map((id) => {
+      const ts = wn ? [] : timesIn(n.scene, id);
+      return item(id, ts.length && ts.length < PHASES.length ? ts.map(phaseName).join(', ') : '');
     }) });
   }
   groups.push({ head: here.size ? 'Everyone else' : 'People', items: others.filter((id) => !here.has(id)).map((id) => {
     if (!PEOPLE_AT) return item(id, '');
-    const w = whereIs(id, n.when);
-    return item(id, w.length ? `${n.when ? `${n.when}: ` : ''}${sceneName(w[0])}${w.length > 1 ? ` +${w.length - 1}` : ''}` : 'in no scene yet');
+    const w = whereIs(id, wn);
+    return item(id, w.length ? `${wn ? `${phaseName(wn)}: ` : ''}${sceneName(w[0])}${w.length > 1 ? ` +${w.length - 1}` : ''}` : 'in no scene yet');
   }) });
   const missing = [...new Set(c.nodes.map((q) => q.who).filter((v) => v && v !== 'player' && !PERSON_NAME[v]))];
   if (missing.length) groups.push({ head: 'Not in the world yet', items: missing.map((v) => ({ value: v, label: v, tag: 'missing' })) });
@@ -1456,21 +1537,21 @@ function nodePanel(box, c, n) {
       const who = personName(n.who), when = PHASES.includes(n.when) ? n.when : '';
       if (!peopleIn(n.scene, when).has(n.who)) {
         const why = whereInstead(n.who, n.scene, when, c.act);
-        const sp = el('span', 'warn', `The world doesn’t put ${who} in ${sceneName(n.scene)}${when ? ` at ${when}` : ' at any time'}.${why ? ' ' + why : ''}`); sp.id = 'f-not-there'; linkRow.append(sp);
+        const sp = el('span', 'warn', `The world doesn’t put ${who} in ${sceneName(n.scene)}${when ? ` in ${phaseName(when)}` : ' in any state'}.${why ? ' ' + why : ''}`); sp.id = 'f-not-there'; linkRow.append(sp);
         if (!S.readOnly) moveTargets(n.who, n.scene, when, c.act).forEach((sc, i) => {
           const m = el('button', 'btn small', `Move the step to ${sceneName(sc)}`); m.type = 'button'; if (!i) m.id = 'f-move-there';
-          m.title = `Where the world has ${who}${when ? ` at ${when}` : ''}`;
+          m.title = `Where the world has ${who}${when ? ` in ${phaseName(when)}` : ''}`;
           m.onclick = () => moveSteps(c, [n.id], sc); linkRow.append(m);
         });
         if (CS && !S.readOnly) {
-          const b = el('button', 'btn small', `Put ${who} in ${sceneName(n.scene)}${when ? ` at ${when}` : ''}`); b.type = 'button'; b.id = 'f-put-there';
-          b.title = `Adds ${who} to People here in ${sceneName(n.scene)} in Plastico${when ? ` at ${when}` : ', at every time of day'}`;
+          const b = el('button', 'btn small', `Put ${who} in ${sceneName(n.scene)}${when ? ` (${phaseName(when)})` : ''}`); b.type = 'button'; b.id = 'f-put-there';
+          b.title = `Adds ${who} to People here in ${sceneName(n.scene)} in Plastico${when ? ` in ${phaseName(when)}` : ', in every state'}`;
           b.onclick = async () => { b.disabled = true; try { await placePerson(n.who, n.scene, when); render(); } catch (e) { b.disabled = false; toast(`Couldn’t put ${who} there: ${e.message}`); } };
           linkRow.append(b);
         }
-      } else if (!when) {   // any time, but the world has them here only at some times: say when
+      } else if (!when) {   // any state, but the world has them here only in some: say which
         const ts = timesIn(n.scene, n.who);
-        if (ts.length && ts.length < PHASES.length) { const sp = el('span', 'note', `${who} is in ${sceneName(n.scene)} only at ${andList(ts)}, so this step can happen only then.`); sp.id = 'f-only-then'; linkRow.append(sp); }
+        if (ts.length && ts.length < PHASES.length) { const sp = el('span', 'note', `${who} is in ${sceneName(n.scene)} only in ${andList(ts.map(phaseName))}, so this step can happen only then.`); sp.id = 'f-only-then'; linkRow.append(sp); }
       }
     }
     linkRow.hidden = !linkRow.childNodes.length;
@@ -1479,9 +1560,15 @@ function nodePanel(box, c, n) {
 
   const r2 = el('div', 'row2');
   const when = el('select'); when.id = 'f-when'; when.disabled = ro;
-  for (const p of [''].concat(PHASES)) { const o = el('option', '', p ? p[0].toUpperCase() + p.slice(1) : (n.kind === 'phase' ? 'Choose…' : 'Any time')); o.value = p; if (p === n.when) o.selected = true; when.append(o); }
+  // the states of the chart's act (one the act no longer has stays listed, so it isn't lost by mistake)
+  const opt = (p) => { const o = el('option', '', p ? phaseName(p) + (PHASES.includes(p) ? '' : ' (not a state of this act)') : (n.kind === 'phase' ? 'Choose…' : 'Any state')); o.value = p; if (p === n.when) o.selected = true; return o; };
+  when.append(opt(''));
+  const gs = groupsOf(c.act);
+  if (gs.length) for (const g of gs) { const og = el('optgroup'); og.label = g.name; for (const [s] of g.states) og.append(opt(s)); when.append(og); }
+  else for (const p of PHASES) when.append(opt(p));
+  if (n.when && !PHASES.includes(n.when)) when.append(opt(n.when));
   when.onchange = () => { pushUndo(); n.when = when.value; scheduleSave(); refreshNode(n); drawLink(); renderSide(); };
-  r2.append(field(n.kind === 'phase' ? 'Time of day' : 'Only at', when));
+  r2.append(field(n.kind === 'phase' ? 'State' : 'Only in', when));
   const st = el('select'); st.id = 'f-status'; st.disabled = ro;
   for (const [v, l] of STATUSES) { const o = el('option', '', l); o.value = v; if (v === n.status) o.selected = true; st.append(o); }
   st.onchange = () => { pushUndo(); n.status = st.value; scheduleSave(); refreshNode(n); };
@@ -1638,7 +1725,7 @@ function updateStatus() {
   b.dataset.s = s; t.textContent = text; b.title = tip; b.setAttribute('aria-label', `${text}. ${tip}`);
   if (CS) CS.status(s === 'ok' ? 'saved' : s === 'off' ? 'err' : s, tip);
 }
-function render() { renderSide(); renderCanvas(); renderInspector(); updateChrome(); }
+function render() { syncPhases(); renderSide(); renderCanvas(); renderInspector(); updateChrome(); }
 function select(sel) {
   S.sel = sel;
   if (sel) S.sheet = false;
@@ -2161,7 +2248,7 @@ function walkthrough() {
   if (c.notes.trim()) lines.push(c.notes.trim(), '');
   for (const n of an.order) {
     lines.push(`${nr.get(n.id)}. ${nodeTitle(n)} (${KINDS[n.kind].label}${n.status !== 'idea' ? ', ' + STATUS_LABEL[n.status].toLowerCase() : ''})`);
-    const meta = [sceneName(n.scene), personName(n.who), n.when, n.gid && n.kind !== 'phase' ? n.gid : ''].filter(Boolean).join(' · ');
+    const meta = [sceneName(n.scene), personName(n.who), phaseName(n.when), n.gid && n.kind !== 'phase' ? n.gid : ''].filter(Boolean).join(' · ');
     if (meta) lines.push('   ' + meta);
     const ps = an.preds.get(n.id);
     if (ps.length) lines.push('   needs: ' + ps.map((p) => nr.get(p)).sort((a, b) => a - b).join(', '));

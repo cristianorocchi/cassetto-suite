@@ -62,9 +62,11 @@ of Qt the window never loads (`packaging/trim_qt.py`). The result is about 450 M
 ```
 My game/
   cassetto.json        manifest: {"format": "cassetto.project", "version": 1, name, id, modules: {plastico: {version}, puzzles: {version}}}
-  plastico/world.json  the world plan (Plastico's own format, "v": 2: block sizes in grid cells, parent scene, charts per scene),
-                       world.files/ sketches, .history/ the last 60 saves
-  puzzles/charts/      one <id>.json per chart (the Puzzle Charts page's own document, "v": 1); .trash/ deleted charts
+  plastico/world.json  the world plan (Plastico's own format, "v": 3: block sizes in grid cells, parent scene, charts per scene,
+                       groups of states: groups [{id, name, acts, states [{id, name}]}]), world.files/ sketches,
+                       .history/ the last 60 saves
+  puzzles/charts/      one <id>.json per chart (the Puzzle Charts page's own document, "v": 2: `states`, the states of
+                       its act it is active in, none = every state); .trash/ deleted charts
   backups/             what each Godot build replaced
 ```
 
@@ -72,7 +74,9 @@ My game/
   chart.
   - A project, module or file from a newer Cassetto is refused with a message, never misread.
   - An older one is brought up to date when it opens: the manifest by the migrations in
-    `core/project.py`, the world by Plastico's own (`plastico/src/plastico/store.py`, version 1 → 2).
+    `core/project.py`, the world by Plastico's own (`plastico/src/plastico/store.py`, version 1 → 2 → 3;
+    3 turns the world's one list of times of day into a group of states of every act, so who is where stays put).
+    A chart of version 1 reads as active in every state.
 - **Damaged files.** A damaged chart is reported and left on disk. A damaged world stops the project
   from opening and points at its history.
 - **One window per project.** A project is open in one Cassetto at a time (`.cassetto.lock`). A lock
@@ -82,6 +86,34 @@ My game/
   project…* (in the menu, or on the welcome screen) unpacks one into a new folder named after the
   project, adding " 2", " 3"… when that name is taken, and opens it. A file from a newer Cassetto is
   refused.
+
+## States
+
+What changes over time is said by **groups of states**. They are generic: times of day (morning, evening),
+the weather (sun, rain), the story (before and after the fallout, after mission X)...
+
+- **A group** has a name, its states and the acts it holds for. One state of each group is on at a time, and
+  a group can hold for several acts: "Weather" on two acts next to each other, so when it rains, it rains on
+  both. An act can have several groups at once (Weather and Story: rain, after the fallout).
+- **A state** has an id, unique in the world (what everything refers to), and a name (shown everywhere, free
+  to change).
+- **What follows the states.** Who is in each scene (*People here*: always, or in some states), which ways and
+  scenes are open (*Open in*), the steps of a chart (*Only in* a state, and the *State* kind of step), and which
+  **puzzle charts are active** (*Active in*, on the chart's panel in Puzzle Charts or under the scene's charts
+  in Plastico; the same in every scene the chart is in). The rule is the same everywhere: in each group it
+  names, one of the states it names must be on; a group it doesn't name doesn't matter. The wife listed under
+  "Before the fallout" is home before the fallout, whatever the weather; the umbrella seller listed under
+  "Rain" and "Before the fallout" only when both are on.
+- **The states on screen** are one per group for the whole suite, remembered per project, like the act on
+  screen (`cassetto.state(group)`, `cassetto.setState(group, state)` and the `state` event in the page bridge).
+  Plastico's view bar shows the groups of the act on screen (keys 1–9); the tree lists them under each act.
+  Picking a state anywhere puts its group in it everywhere, in every act it holds for: Plastico's people and
+  ways follow, and the charts not active then are struck through in Plastico and in the tree.
+- **Editing them**: Plastico's World settings, *States*: the groups, the acts each holds for, their states.
+  Taking a state away (or an act from a group) takes away who is where in it. A step that names a state its
+  act no longer has counts as any state, and its panel still shows it.
+- **Godot.** The game's phases (`GameState.PHASES`) are a group of states of every act ("Phase of the game").
+  The art per phase and the people the game puts in a scene per phase follow it.
 
 ## How it is built
 
@@ -138,17 +170,18 @@ puzzle-charts/       Puzzle Charts: index.html is still the claude.ai artifact p
 
 | Data | Owner | Offered as | Used by | Up to date |
 | --- | --- | --- | --- | --- |
-| Scenes, people, times of day, acts of the world (with each scene's act, parent and whether it is in the game) | Plastico | `world.catalog` | Puzzle Charts: Where (the chart's act's scenes first) and Who, the act of a chart, the "not in the world" and "In another act" checks | read on every request; Puzzle Charts reloads on each `world.changed` |
-| Who is in each scene at each time of day (the game's people, less the ones the plan takes away, plus the plan's) | Plastico | `world.catalog` → `people_at` (the Godot scan is read again only when a scene or character file changes) | Puzzle Charts: Who lists the people in the step's scene then first, and the "Not there then" check: it says where the world has them then, and offers to move the step there or put them in its scene | as above |
-| Puzzle charts (steps, scenes, game ids, links) | Puzzle Charts | `puzzles.charts` | Plastico: each scene's steps, where a lock's key is found, the "chart place missing" check | live from the chart files; Plastico refreshes on each `puzzles.changed` |
+| Scenes, people, acts of the world and the groups of states (with each scene's act, parent and whether it is in the game) | Plastico | `world.catalog` (`groups`: [{id, name, acts, states}], `states`: {act: [[id, name]]}) | Puzzle Charts: Where (the chart's act's scenes first) and Who, the act of a chart, the "not in the world" and "In another act" checks | read on every request; Puzzle Charts reloads on each `world.changed` |
+| Who is in each scene in each state of its act (the game's people, less the ones the plan takes away, plus the plan's) | Plastico | `world.catalog` → `people_at` (the Godot scan is read again only when a scene or character file changes) | Puzzle Charts: Who lists the people in the step's scene then first, and the "Not there then" check: it says where the world has them then, and offers to move the step there or put them in its scene | as above |
+| Puzzle charts (steps, scenes, game ids, links, the states they are active in) | Puzzle Charts | `puzzles.charts`; `puzzles.set_states` changes a chart's states | Plastico: each scene's steps, where a lock's key is found, the "chart place missing" check | live from the chart files; Plastico refreshes on each `puzzles.changed` |
 | A scene's id changing | Plastico (asks) | `puzzles.rename_scene` | Puzzle Charts moves the steps placed there | when the scene's name sets its new id |
 | Which charts go with which scene (one chart can go with many) | worked out from the steps: a chart goes with every scene one of its steps is placed in. A chart can also be pinned to a scene by hand before it has steps there (`charts: [chart ids]` in world.json) | `world.catalog` → `hierarchy` (`charts`, `charts_from_steps`, `charts_pinned`, `steps`) | the project tree, Plastico's "Puzzle charts here", Puzzle Charts ("Scenes" of a chart), `puzzles.references` | on every change of either side |
 | The locked ways (what each lock needs) | Plastico | `world.catalog` → `locks` | Puzzle Charts: a step that gives the item or sets the flag says which lock it opens | on every save of the world |
-| Adding a person or scene a step names | Plastico (`world.add_person`, `world.add_scene`, `world.place_person`) | `puzzles.add_to_world` | the broken links list and a step's panel: one click adds it, points the steps at it, and puts a person in the scenes those steps have them in (at the step's time of day, or every time) | at once; an open Plastico page reloads |
+| Adding a person or scene a step names | Plastico (`world.add_person`, `world.add_scene`, `world.place_person`) | `puzzles.add_to_world` | the broken links list and a step's panel: one click adds it, points the steps at it, and puts a person in the scenes those steps have them in (in the step's state, or every state of the scene's act) | at once; an open Plastico page reloads |
 | Scenes inside scenes (`parent`), acts | Plastico | `world.catalog` → `hierarchy` | the project tree | on every save of the world |
 | The act on screen | the shell (one for the whole suite, remembered per project) | `cassetto.act()`, `cassetto.setAct()` and the `act` event in the page bridge | Plastico shows that act; Puzzle Charts opens that act's chart (the one last opened in it, or a fresh one, saved with its first change, when the act has none) and makes new charts in it; opening a chart moves Plastico to the chart's act unless Plastico shows every act; the tree marks the act | at once |
 | Steps pointing at scenes or people the world lacks | Puzzle Charts | `puzzles.references` | the shell's "broken links" counter and list | on every change of either side |
-| A step's person not in its scene at its time of day | worked out by Plastico (the people plan and the game) | Plastico's checks ("Not there then": where the world has them then, a button that puts them there and one that opens the step) | Plastico | on every change of either side |
+| The state on screen of each group of states | the shell (see States) | `cassetto.state()`, `cassetto.setState()` and the `state` event | Plastico (people, ways, charts then), the tree | at once |
+| A step's person not in its scene in its state | worked out by Plastico (the people plan and the game) | Plastico's checks ("Not there then": where the world has them then, a button that puts them there and one that opens the step) | Plastico | on every change of either side |
 
 The two modules link both ways. From a scene in Plastico, you can open any of its steps in Puzzle
 Charts, or open a chart with that scene's steps highlighted. From a step in Puzzle Charts, you can show
@@ -156,8 +189,10 @@ its scene in Plastico. A chart's panel lists its scenes and people with their st
 highlights those steps) and the scenes of its act it doesn't use yet. With an act on screen, Plastico
 lists the act's charts and its scenes with no puzzle step.
 
-- **The project tree** (left, Ctrl+B) shows acts › *Act charts* (the act's charts), then its scenes › scenes
-  inside them › the charts with steps in each scene (with how many) or pinned to it. Guide lines show what is
+- **The project tree** (left, Ctrl+B) shows acts › their groups of states (each with its states, the one on
+  screen marked: click one to put the group in it; a group shared with other acts says so), *Act charts* (the
+  act's charts), then its scenes › scenes inside them › the charts with steps in each scene (with how many) or
+  pinned to it. A chart not active with the states on screen is struck through. Guide lines show what is
   inside what. A chart for an act the world doesn't have goes in a group of its own. The act on screen has a
   mark. Steps are counted the same everywhere: every node but the end goals and the scene setups. A scene opens
   in Plastico, a chart in Puzzle Charts, an act filters Plastico to it. It reloads on every `world.changed` /
@@ -188,7 +223,7 @@ A game is linked when a project is made (**New project › A Godot game** lists 
 **Works today.** These were already in Plastico and are unchanged:
 
 - reading the game every time Plastico opens or regains focus;
-- each scene's art per time of day;
+- each scene's art per phase of the game (a state of every act, see States);
 - Build, with a backup first and Undo;
 - the headless smoke test (needs the `godot` command).
 

@@ -16,11 +16,11 @@ def test_new_project_has_manifest_and_module_folders(core, home):
     p = core.create_project(home / "projects" / "Tiny", "Tiny")
     m = json.loads((p.path / "cassetto.json").read_text())
     assert m["format"] == "cassetto.project" and m["version"] == 1 and m["name"] == "Tiny"
-    assert m["modules"] == {"plastico": {"version": 2}, "puzzles": {"version": 1}}
+    assert m["modules"] == {"plastico": {"version": 3}, "puzzles": {"version": 2}}
     assert (p.path / "plastico" / "world.json").is_file()
     assert (p.path / "puzzles" / "charts").is_dir()
     assert {i["name"] for i in core.interfaces()} == {"world.catalog", "world.add_person", "world.add_scene", "world.place_person",
-                                                     "puzzles.charts", "puzzles.create_chart", "puzzles.set_act", "puzzles.rename_scene",
+                                                     "puzzles.charts", "puzzles.create_chart", "puzzles.set_act", "puzzles.set_states", "puzzles.rename_scene",
                                                      "puzzles.references", "puzzles.add_to_world"}
 
 
@@ -191,7 +191,9 @@ def test_linked_godot_game_is_read_and_reported(core, home):
     assert {(e["from"], e["to"]) for e in b["game"]["exits"]} == {("square", "shop"), ("shop", "square")}
     assert b["game"]["scenes"]["shop"]["people"]["night"] == ["shopkeeper"]
     cat = core.call("world.catalog")
-    assert {s for s, _ in cat["scenes"]} == {"square", "shop"} and cat["phases"] == ["day", "night"]
+    # the game's phases are a group of states of every act
+    assert {s for s, _ in cat["scenes"]} == {"square", "shop"} and cat["states"] == {"1": [["day", "Day"], ["night", "Night"]]}
+    assert cat["groups"] == [{"id": "game", "name": "Phase of the game", "acts": ["1"], "states": [["day", "Day"], ["night", "Night"]], "game": True}]
     st = link.status(cat["godot"])
     assert st["found"] and st["name"] == "Tiny Game"
     assert {c["state"] for c in st["capabilities"]} == {"works", "planned"}
@@ -220,7 +222,7 @@ def test_rename_project_renames_the_world(core, home):
     assert p.name == "Better name"
 
 
-def test_a_version_1_world_comes_up_to_version_2_on_the_grid(core, home):
+def test_a_version_1_world_comes_up_to_date_on_the_grid(core, home):
     """Projects made before grid sizes, parents and chart associations open unchanged in meaning."""
     from plastico import store
     p = core.create_project(home / "old", "Old")
@@ -234,9 +236,9 @@ def test_a_version_1_world_comes_up_to_version_2_on_the_grid(core, home):
     m["modules"]["plastico"]["version"] = 1
     (p.path / "cassetto.json").write_text(json.dumps(m))
     core.open_project(p.path)
-    assert json.loads((p.path / "cassetto.json").read_text())["modules"]["plastico"]["version"] == 2
+    assert json.loads((p.path / "cassetto.json").read_text())["modules"]["plastico"]["version"] == 3
     w = store.load("world", p.path / "plastico")
-    assert w["v"] == 2
+    assert w["v"] == 3 and json.loads((p.path / "plastico" / "world.json").read_text())["v"] == 3
     for s in w["scenes"]:
         assert isinstance(s["w"], int) and isinstance(s["d"], int) and s["parent"] == "" and s["charts"] == []
         for c, size in ((s["x"], s["w"]), (s["z"], s["d"])):      # both edges on grid lines
@@ -245,6 +247,32 @@ def test_a_version_1_world_comes_up_to_version_2_on_the_grid(core, home):
     assert sizes == {"square": (12, 7), "shop": (6, 4), "desk": (3, 2)}
     by = {s["id"]: s for s in w["scenes"]}
     assert abs(by["shop"]["x"] - 12.5) <= 0.5 and abs(by["shop"]["z"] + 3.5) <= 0.5   # moved by under a cell
+
+
+def test_a_version_2_world_turns_its_times_of_day_into_a_group_of_every_act(core, home):
+    """The times of day become a group of states every act has, so who is where at each time stays where it was."""
+    from plastico import store
+    p = core.create_project(home / "old2", "Old2")
+    core.close_project()
+    v2 = {"v": 2, "id": "world", "name": "Old2", "phases": ["morning", "night"],
+          "acts": [{"id": "1", "name": "", "start": ""}, {"id": "2", "name": "Later", "start": ""}],
+          "people": [{"id": "elda", "name": "Elda"}],
+          "scenes": [{"id": "pub", "name": "Pub", "kind": "inside", "act": "1", "x": 3, "z": 2, "w": 6, "d": 4,
+                      "people": {"night": ["elda"]}, "open": ["night"]}], "links": []}
+    (p.path / "plastico" / "world.json").write_text(json.dumps(v2))
+    m = json.loads((p.path / "cassetto.json").read_text())
+    m["modules"]["plastico"]["version"] = 2
+    (p.path / "cassetto.json").write_text(json.dumps(m))
+    core.open_project(p.path)
+    on_disk = json.loads((p.path / "plastico" / "world.json").read_text())
+    assert on_disk["v"] == 3 and "phases" not in on_disk
+    assert on_disk["groups"] == [{"id": "time", "name": "Time of day", "acts": ["1", "2"],
+                                  "states": [{"id": "morning", "name": "Morning"}, {"id": "night", "name": "Night"}]}]
+    pub = on_disk["scenes"][0]
+    assert pub["people"] == {"night": ["elda"]} and pub["open"] == ["night"]
+    assert core.call("world.catalog")["people_at"] == {"pub": {"night": ["elda"]}}
+    assert list((p.path / "plastico" / ".history" / "world").glob("*.json"))      # the version 2 file is kept
+    assert store.act_states(store.load("world", p.path / "plastico"), "2") == ["morning", "night"]
 
 
 def test_parents_and_chart_associations_are_kept_and_checked(core, home):

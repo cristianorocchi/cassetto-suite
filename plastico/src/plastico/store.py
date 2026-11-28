@@ -16,8 +16,10 @@ from .godot import pascal
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 HISTORY_KEEP = 60
 DEFAULT_KIND = "inside"
-VERSION = 2          # 2: every scene has a footprint in whole grid cells (w, d), edges on the grid,
+VERSION = 3          # 2: every scene has a footprint in whole grid cells (w, d), edges on the grid,
                      #    a parent (a scene it sits in) and the puzzle charts it is associated with
+                     # 3: groups of states (groups: [{id, name, acts, states: [{id, name}]}]) instead of one
+                     #    list of times of day for the whole world (phases): they became a group of every act
 # the same numbers as web/js/model.js: a new scene's footprint per kind, the grid cell
 SIZES = {"outside": (12, 7), "inside": (6, 4), "closeup": (3, 2)}
 GRID = 1.0
@@ -63,6 +65,100 @@ def nice_name(sid: str) -> str:
     return sid.replace("_", " ").strip().capitalize()
 
 
+# --- states ---
+# What changes over time is said by groups of states: "Weather" (sun, rain), "Story" (before the fallout,
+# after it), "Time of day"... A group holds for one act or several (rain on two acts next to each other), and
+# one state of each group is on at a time. State ids are unique in the whole world: people per state in a
+# scene, the states a scene or way is open in, a chart's states and a step's state all name them.
+GAME_GROUP = "game"      # the game's phases (GameState.PHASES), a group of every act
+
+
+def state_id(name: str, taken=()) -> str:
+    """An id for a new state (or group), from its name, that nothing uses yet."""
+    base = re.sub(r"[^a-z0-9]+", "_", str(name or "").lower()).strip("_")[:48] or "state"
+    sid, k = base, 2
+    while sid in taken:
+        sid, k = f"{base}_{k}", k + 1
+    return sid
+
+
+def groups_of(world: dict, act: str) -> list[dict]:
+    """The groups of states that hold for an act, in order."""
+    return [g for g in world.get("groups") or [] if act in g.get("acts", [])]
+
+
+def act_states(world: dict, act: str) -> list[str]:
+    """The ids of the states of an act's groups, in order."""
+    return [s["id"] for g in groups_of(world, act) for s in g["states"]]
+
+
+def group_of(world: dict) -> dict[str, str]:
+    """{state id: its group's id}."""
+    return {s["id"]: g["id"] for g in world.get("groups") or [] for s in g["states"]}
+
+
+def present(listed, sel: dict, gof: dict) -> bool:
+    """Whether something listed under these states (a person in a scene, a chart, a way open in them) is
+    there when `sel` ({group: state}) is on screen: in each group it names, the state on is one of them (a
+    group it doesn't name, or one `sel` doesn't say, doesn't matter). "any" = always."""
+    listed = set(listed or [])
+    if "any" in listed:
+        return True
+    known = {s for s in listed if s in gof}
+    if not known:
+        return False
+    for g in {gof[s] for s in known}:
+        if g in sel and sel[g] not in known:
+            return False
+    return True
+
+
+def _clean_groups(w: dict, act_ids: list[str]) -> list[dict]:
+    out, gids, sids = [], set(), set()
+    for g in w.get("groups") if isinstance(w.get("groups"), list) else []:
+        if not isinstance(g, dict):
+            continue
+        name = " ".join(str(g.get("name") or "").split())[:80]
+        gid = str(g.get("id") or "").strip() or state_id(name or "group", gids)
+        if gid in gids:
+            continue
+        gids.add(gid)
+        states = []
+        for s in g.get("states") if isinstance(g.get("states"), list) else []:
+            if isinstance(s, str):
+                s = {"id": s, "name": ""}
+            if not isinstance(s, dict):
+                continue
+            sname = " ".join(str(s.get("name") or "").split())[:80]
+            sid = str(s.get("id") or "").strip() or state_id(sname, sids)
+            if sid in sids:           # ids are the world's: a second one with the same id is dropped
+                continue
+            sids.add(sid)
+            states.append({"id": sid, "name": sname or nice_name(sid)})
+        acts = [a for a in dict.fromkeys(g.get("acts") or []) if a in act_ids]
+        out.append({"id": gid, "name": name or nice_name(gid), "acts": acts, "states": states})
+    return out
+
+
+def _groups_from_old(w: dict, old_version: int) -> list[dict]:
+    """Groups for a world from before them: version 2's times of day (one list for the world) become one
+    group of every act; this branch's first try at states (acts[].states) one group per set of acts with the same states."""
+    acts = [a["id"] for a in w["acts"]]
+    phases = [p for p in w.get("phases") or [] if isinstance(p, str) and p]
+    if old_version < 3 and phases:
+        return [{"id": "time", "name": "Time of day", "acts": acts, "states": [{"id": p, "name": nice_name(p)} for p in phases]}]
+    by_list: dict[tuple, dict] = {}
+    for a in w["acts"]:
+        sts = [s for s in a.get("states") or [] if isinstance(s, dict) and s.get("id")]
+        if not sts:
+            continue
+        key = tuple(s["id"] for s in sts)
+        if key not in by_list:
+            by_list[key] = {"id": "", "name": "States", "acts": [], "states": sts}
+        by_list[key]["acts"].append(a["id"])
+    return list(by_list.values())
+
+
 def world_path(wid: str, root: Path | None = None) -> Path:
     root = _root(root)
     if not ID_RE.match(wid):
@@ -78,7 +174,7 @@ def files_dir(wid: str, root: Path | None = None) -> Path:
 def blank_world(wid: str, name: str, godot: str = "") -> dict:
     return {
         "v": VERSION, "id": wid, "name": name, "godot": godot, "start": "",
-        "phases": [], "acts": [{"id": "1", "name": "", "start": ""}],
+        "acts": [{"id": "1", "name": "", "start": ""}], "groups": [],
         "areas": [], "people": [], "scenes": [], "links": [],
         "rev": 0, "created": int(time.time() * 1000), "updated": int(time.time() * 1000),
     }
@@ -90,7 +186,6 @@ def normalize(w: dict) -> dict:
     w.setdefault("name", w.get("id", "World"))
     w.setdefault("godot", "")
     w.setdefault("start", "")
-    w.setdefault("phases", [])
     w.setdefault("acts", [{"id": "1", "name": "", "start": ""}])
     w.setdefault("areas", [])
     w.setdefault("people", [])
@@ -102,6 +197,13 @@ def normalize(w: dict) -> dict:
     for a in w["acts"]:
         a.setdefault("name", "")
         a.setdefault("start", "")
+    # groups of states; from before them, the world's times of day (version 2) become a group of every act
+    if "groups" not in w:
+        w["groups"] = _groups_from_old(w, old_version)
+    w.pop("phases", None)
+    for a in w["acts"]:
+        a.pop("states", None)
+    w["groups"] = _clean_groups(w, [a["id"] for a in w["acts"]])
     act_ids = {a["id"] for a in w["acts"]}
     seen = set()
     scenes = []
@@ -322,9 +424,31 @@ def reconcile(world: dict, game: dict | None) -> bool:
     if not game:
         return False
     changed = False
-    if game.get("phases") and world.get("phases") != game["phases"]:
-        world["phases"] = list(game["phases"])
-        changed = True
+    # the game's phases (GameState.PHASES) are a group of states of every act ("Phase of the game", first);
+    # a group of the world's own that has one of them (its old times of day) gives it up to the game's
+    gp = [p for p in game.get("phases") or [] if isinstance(p, str) and p]
+    if gp:
+        groups = world.setdefault("groups", [])
+        g = next((x for x in groups if x["id"] == GAME_GROUP), None)
+        old = next((x for x in groups if x["id"] != GAME_GROUP and any(s["id"] in gp for s in x["states"])), None)
+        if g is None:
+            g = {"id": GAME_GROUP, "name": old["name"] if old else "Phase of the game", "acts": [], "states": []}
+            groups.insert(0, g)
+            changed = True
+        names = {s["id"]: s["name"] for x in groups for s in x["states"]}
+        if old:       # its other states stay in it; the game's move to the game's group
+            old["states"] = [s for s in old["states"] if s["id"] not in gp]
+            if not old["states"]:
+                groups.remove(old)
+            changed = True
+        states = [{"id": p, "name": names.get(p) or nice_name(p)} for p in gp]
+        if [s["id"] for s in g["states"]] != gp:
+            g["states"] = states
+            changed = True
+        acts = [a["id"] for a in world["acts"]]
+        if g["acts"] != acts:
+            g["acts"] = acts
+            changed = True
     if game.get("start") and world.get("start") != game["start"]:
         world["start"] = game["start"]
         changed = True

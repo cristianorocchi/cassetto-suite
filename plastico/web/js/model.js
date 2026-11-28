@@ -101,7 +101,17 @@ export function pairKey(a, b) { return a < b ? `${a}|${b}` : `${b}|${a}`; }
 export const firstName = (n) => String(n || '').split(',')[0].trim();
 
 export function derive(world, game, charts, uploads = []) {
-  const phases = (game && game.phases && game.phases.length ? game.phases : world.phases) || [];
+  // Groups of states (world.groups: [{id, name, acts, states: [{id, name}]}]): "Weather" (sun, rain) on two
+  // acts, "Story" (before the fallout, after it) on one... One state of each group is on at a time. What people,
+  // ways, scenes and charts are like follows them. The game's phases are a group of every act (the server
+  // puts it there when it reads the game). State ids are the world's.
+  const groups = (world.groups || []).filter((g) => g && g.id).map((g) => ({ id: g.id, name: g.name || g.id, acts: g.acts || [],
+    states: (g.states || []).filter((s) => s && s.id).map((s) => ({ id: s.id, name: s.name || s.id })) }));
+  const groupOf = new Map(), stateNames = new Map();
+  for (const g of groups) for (const s of g.states) { groupOf.set(s.id, g.id); stateNames.set(s.id, s.name); }
+  const states = new Map();      // act -> its groups' states, in order
+  for (const a of world.acts || []) states.set(a.id, groups.filter((g) => g.acts.includes(a.id)).flatMap((g) => g.states));
+  const phases = groups.flatMap((g) => g.states.map((s) => s.id));     // every state
   const gScenes = (game && game.scenes) || {};
   const people = new Map(world.people.map((p) => [p.id, p]));
   const upl = new Set(uploads);
@@ -158,34 +168,75 @@ export function derive(world, game, charts, uploads = []) {
     }
   }
   const chartById = new Map(((charts && charts.charts) || []).map((c) => [c.id, c]));
-  const M = { world, game, charts, chartById, phases, scenes, links, pairs, out, inn, openEnds, people, steps };
+  const M = { world, game, charts, chartById, phases, groups, groupOf, stateNames, states, scenes, links, pairs, out, inn, openEnds, people, steps };
   M.start = world.start && scenes.has(world.start) ? world.start : '';
   return M;
 }
 
-// --- time of day and people ---
+// --- states and people ---
+// A selection says which states are on: {group id: state id} (the states on screen), one state id (that
+// state on, the other groups in any state), or '' (any state of every group).
 
-export function sceneOpenAt(S, phase) { return !phase || !S.open || !S.open.length || S.open.includes(phase); }
-export function linkOpenAt(L, phase) {
-  if (!phase) return true;
-  if (L.open && L.open.length && !L.open.includes(phase)) return false;
-  if (L.gamePhases && !L.gamePhases.includes(phase)) return false;
+/** The groups of states that hold for an act, in order. */
+export function groupsOf(M, act) { return M.groups.filter((g) => g.acts.includes(act)); }
+/** The ids of an act's states (those of its groups), in order. */
+export function statesOf(M, act) { return (M.states.get(act) || []).map((s) => s.id); }
+/** A state's name. (`act` is kept for the callers: state ids are the world's.) */
+export function stateName(M, act, id) { return id ? M.stateNames.get(id) || id : ''; }
+const toSel = (M, sel) => (!sel ? {} : typeof sel === 'string' ? (M.groupOf.has(sel) ? { [M.groupOf.get(sel)]: sel } : {}) : sel);
+/** Whether something listed under these states is there with `sel` on: in each group it names, the state on
+ * is one of them (a group it doesn't name, or `sel` doesn't say, doesn't matter). "any": always. None: never. */
+export function present(M, listed, sel) {
+  if (!listed || !listed.length) return false;
+  if (listed.includes('any')) return true;
+  const known = listed.filter((s) => M.groupOf.has(s)); if (!known.length) return false;
+  const on = toSel(M, sel);
+  for (const g of new Set(known.map((s) => M.groupOf.get(s)))) if (on[g] && !known.includes(on[g])) return false;
   return true;
 }
-/** [{id, name, from:'game'|'plan'}] for a scene at a phase. */
-/** People the game puts in a scene that the plan takes out of it, per time of day ('' = any time). */
+/** As present, but a list naming no state the world has means no condition: always. */
+export function holds(M, conds, sel) { const known = (conds || []).filter((s) => M.groupOf.has(s)); return !known.length || present(M, known, sel); }
+/** The states a chart names that the world has ([]: active in every state). */
+export function chartStates(M, c) { return (c.states || []).filter((s) => M.groupOf.has(s)); }
+/** Whether a chart is active with `sel` on. */
+export function chartActiveIn(M, c, sel) { return holds(M, c.states, sel); }
+/** Every combination of the states of an act's groups ({group: state}), up to `max`. */
+export function combos(M, act, max = 256) {
+  let out = [{}];
+  for (const g of groupsOf(M, act)) {
+    if (!g.states.length) continue;
+    const next = [];
+    for (const c of out) for (const s of g.states) { if (next.length >= max) break; next.push({ ...c, [g.id]: s.id }); }
+    out = next;
+  }
+  return out;
+}
+
+export function sceneOpenAt(M, S, sel) { return holds(M, S.open, sel); }
+export function linkOpenAt(M, L, sel) { return holds(M, L.open, sel) && (!L.gamePhases || holds(M, L.gamePhases, sel)); }
+/** Whether the plan takes someone the game puts in a scene out of it with `sel` on: they are away in the state
+ * on of a group, or (a group `sel` doesn't say) in all its states. "any": always. */
+function takenAway(M, S, id, sel) {
+  const keys = Object.entries(S.away || {}).filter(([, ids]) => (ids || []).includes(id)).map(([k]) => k);
+  if (keys.includes('any')) return true;
+  const on = toSel(M, sel);
+  for (const g of new Set(keys.filter((k) => M.groupOf.has(k)).map((k) => M.groupOf.get(k)))) {
+    const mine = keys.filter((k) => M.groupOf.get(k) === g);
+    if (on[g] ? mine.includes(on[g]) : M.groups.find((x) => x.id === g).states.every((s) => mine.includes(s.id))) return true;
+  }
+  return false;
+}
+/** The states the plan takes a person out of a scene in (for the "To change in Godot" note). */
 export function awayAt(S, phase) {
   const away = S.away || {};
   return new Set(phase ? away[phase] || [] : Object.values(away).flat());
 }
-export function peopleAt(M, S, phase) {
+/** [{id, name, from:'game'|'plan'}]: who is in a scene with `sel` on. */
+export function peopleAt(M, S, sel) {
+  const listed = (people) => { const m = new Map(); for (const [k, ids] of Object.entries(people || {})) for (const id of ids || []) { if (!m.has(id)) m.set(id, []); m.get(id).push(k); } return m; };
   const out = new Map();
-  const gp = (S.g && S.g.people) || {};
-  if (phase) { const away = awayAt(S, phase); for (const id of gp[phase] || []) if (!away.has(id)) out.set(id, 'game'); }
-  else for (const [ph, ids] of Object.entries(gp)) { const away = awayAt(S, ph); for (const id of ids) if (!away.has(id)) out.set(id, 'game'); }
-  const plan = S.people || {};
-  const list = phase ? plan[phase] || [] : Object.values(plan).flat();
-  for (const id of list) if (!out.has(id)) out.set(id, 'plan');
+  for (const [id, ks] of listed(S.g && S.g.people)) if (present(M, ks, sel) && !takenAway(M, S, id, sel)) out.set(id, 'game');
+  for (const [id, ks] of listed(S.people)) if (!out.has(id) && present(M, ks, sel)) out.set(id, 'plan');
   return [...out].map(([id, from]) => ({ id, from, name: firstName((M.people.get(id) || {}).name) || id }));
 }
 
@@ -219,7 +270,8 @@ export function lockKeys(M) {
 // --- graph ---
 
 /**
- * Who can go where. opts: phase (only what is open then), keys (Set: locks they open; null = every
+ * Who can go where. opts: phase (only what is open with those states on: a selection, {group: state} or
+ * one state id), keys (Set: locks they open; null = every
  * lock open), skip (a link id treated as closed), builtOnly (only what is in the game), act (scenes of one act).
  */
 export function adjacency(M, opts = {}) {
@@ -232,7 +284,7 @@ export function adjacency(M, opts = {}) {
     const a = M.scenes.get(L.from), b = M.scenes.get(L.to);
     if (!a || !b || a.state === 'delete' || b.state === 'delete') continue;
     if (builtOnly && (a.state !== 'game' || b.state !== 'game')) continue;
-    if (!linkOpenAt(L, phase) || !sceneOpenAt(b, phase)) continue;
+    if (phase && (!linkOpenAt(M, L, phase) || !sceneOpenAt(M, b, phase))) continue;
     if (keys && L.lock && !keys.has(L.lock.needs)) continue;
     adj.get(L.from).push({ to: L.to, link: L });
   }
@@ -330,35 +382,46 @@ export function checks(M) {
   for (const K of lockKeys(M)) {
     if (!K.where) add('warn', 'Where is the key?', `The way${K.links.length > 1 ? 's' : ''} from ${listNames(K.links.map((l) => `${nm(M, l.from)} to ${nm(M, l.to)}`))} need${K.links.length > 1 ? '' : 's'} ${K.needs}, but nothing says where the player gets it. Set it on the lock, or give it a step in a puzzle chart.`, [], K.links.map((l) => l.id));
   }
-  // time of day: a scene nobody can enter at the times it is open
+  // states: a scene nobody can enter in the states it is open in (each scene in its act's states)
+  const sts = (S) => statesOf(M, S.act);
+  const stName = (S, id) => `“${stateName(M, S.act, id)}”`;      // a state named in a sentence: in “Before the fallout”
+  const comboName = (c) => Object.values(c).map((s) => `“${stateName(M, '', s)}”`).join(' + ');
   if (M.phases.length) {
     for (const S of live) {
       const ins = (M.inn.get(S.id) || []).filter((l) => l.state !== 'delete');
-      if (!ins.length) continue;
-      const when = M.phases.filter((p) => sceneOpenAt(S, p) && ins.some((l) => linkOpenAt(l, p)));
-      if (!when.length) add('warn', 'Never open', `${S.name} is never open at a time when a way into it is.`, [S.id]);
+      if (!ins.length || !sts(S).length) continue;
+      const when = combos(M, S.act).filter((c) => sceneOpenAt(M, S, c) && ins.some((l) => linkOpenAt(M, l, c)));
+      if (!when.length) add('warn', 'Never open', `${S.name} is never open in a state when a way into it is.`, [S.id]);
     }
-    // people in two places at once
-    for (const p of M.phases) {
+  }
+  {
+    // people in two places at once: with the same states on, in the scenes of one act (each pair said once)
+    const told = new Set();
+    for (const act of acts) for (const c of combos(M, act.id)) {
       const where = new Map();
-      for (const S of live) for (const who of peopleAt(M, S, p)) {
+      for (const S of live) if (S.act === act.id) for (const who of peopleAt(M, S, c)) {
         if (!where.has(who.id)) where.set(who.id, []);
         where.get(who.id).push(S);
       }
       for (const [id, list] of where) {
         if (list.length < 2) continue;
+        const k = id + '|' + list.map((s) => s.id).sort().join(',');
+        if (told.has(k)) continue;
+        told.add(k);
         // the scenes where the plan puts them come first: clicking the check opens the first one
-        const planned = (S) => peopleAt(M, S, p).some((w) => w.id === id && w.from === 'plan');
+        const planned = (S) => peopleAt(M, S, c).some((w) => w.id === id && w.from === 'plan');
         const ordered = [...list.filter(planned), ...list.filter((S) => !planned(S))];
-        add('warn', 'In two places', `${firstName((M.people.get(id) || {}).name) || id} is in ${listNames(ordered.map((s) => s.name))} at once (${p}). Take them out of one: the × on their name under People here.`, ordered.map((s) => s.id));
+        add('warn', 'In two places', `${firstName((M.people.get(id) || {}).name) || id} is in ${listNames(ordered.map((s) => s.name))} at once${Object.keys(c).length ? ` (in ${comboName(c)})` : ''}. Take them out of one: the × on their name under People here.`, ordered.map((s) => s.id));
       }
     }
-    // a puzzle step with someone in a scene at a time of day, where the world doesn't have them then
+  }
+  if (M.phases.length) {
+    // a puzzle step with someone in a scene in a state, where the world doesn't have them then
     const notThere = new Map();
     for (const c of (M.charts && M.charts.charts) || []) for (const n of c.nodes) {
       if (!n.who || n.who === 'player' || !n.scene || !M.people.has(n.who) || n.kind === 'goal' || n.kind === 'setup') continue;
-      const S = M.scenes.get(n.scene); if (!S || S.state === 'delete') continue;
-      const when = M.phases.includes(n.when) ? n.when : '';
+      const S = M.scenes.get(n.scene); if (!S || S.state === 'delete' || !sts(S).length) continue;
+      const when = sts(S).includes(n.when) ? n.when : '';
       if (peopleAt(M, S, when).some((w) => w.id === n.who)) continue;
       const k = `${n.who}|${S.id}|${when}`;
       if (!notThere.has(k)) notThere.set(k, { who: n.who, S, when, steps: [], refs: [] });
@@ -368,28 +431,30 @@ export function checks(M) {
     for (const x of notThere.values()) {
       const who = firstName((M.people.get(x.who) || {}).name) || x.who;
       const has = (S, ph) => peopleAt(M, S, ph).some((w) => w.id === x.who);
-      // where the world has them instead: at that time, or (a step at any time) at the times it says
-      const at = live.filter((S) => S.id !== x.S.id && has(S, x.when)).map((S) => {
-        const ts = x.when ? [] : M.phases.filter((ph) => has(S, ph));
-        return S.name + (ts.length && ts.length < M.phases.length ? ` (${listNames(ts)})` : '');
+      // where the world has them instead: in that state, or (a step in any state) in the states it says
+      const at = live.filter((S) => S.id !== x.S.id && S.act === x.S.act && has(S, x.when)).map((S) => {
+        const ts = x.when ? [] : sts(S).filter((ph) => has(S, ph));
+        return S.name + (ts.length && ts.length < sts(S).length ? ` (${listNames(ts.map((t) => stName(S, t)))})` : '');
       });
       const names = at.length > 3 ? `${at.slice(0, 3).join(', ')} and ${at.length - 3} more` : listNames(at);
-      const here = x.when ? M.phases.filter((ph) => has(x.S, ph)) : [];
-      let then = x.when ? (at.length ? ` At ${x.when} the world puts ${who} in ${names}.` : ` At ${x.when} the world doesn’t put ${who} in any scene.`)
+      const here = x.when ? sts(x.S).filter((ph) => has(x.S, ph)) : [];
+      const now = stName(x.S, x.when);
+      let then = x.when ? (at.length ? ` In ${now} the world puts ${who} in ${names}.` : ` In ${now} the world doesn’t put ${who} in any scene.`)
         : (at.length ? ` The world puts ${who} in ${names}.` : '');
-      if (here.length) then += ` ${x.S.name} has ${who} at ${listNames(here)}.`;
-      add('warn', 'Not there then', `${listNames(x.steps)} ${x.steps.length > 1 ? 'have' : 'has'} ${who} in ${x.S.name}${x.when ? ` at ${x.when}` : ''}, where the world doesn’t have ${who}${x.when ? ' then' : ' at any time'}.${then} Put ${who} there, or move the step in Puzzle Charts.`,
+      if (here.length) then += ` ${x.S.name} has ${who} in ${listNames(here.map((t) => stName(x.S, t)))}.`;
+      add('warn', 'Not there then', `${listNames(x.steps)} ${x.steps.length > 1 ? 'have' : 'has'} ${who} in ${x.S.name}${x.when ? ` in ${now}` : ''}, where the world doesn’t have ${who}${x.when ? ' then' : ' in any state'}.${then} Put ${who} there, or move the step in Puzzle Charts.`,
         [x.S.id], [], { place: { who: x.who, scene: x.S.id, when: x.when }, steps: x.refs });
     }
     // people the plan takes out of a scene the game puts them in: only Godot can do that
     const leaving = [];
-    for (const S of live) for (const ph of M.phases) for (const id of awayAt(S, ph)) {
-      if (((S.g && S.g.people && S.g.people[ph]) || []).includes(id)) leaving.push({ S, id, ph });
+    for (const S of live) for (const ph of [...sts(S), 'any']) for (const id of awayAt(S, ph)) {
+      const gp = (S.g && S.g.people) || {};
+      if (ph === 'any' ? Object.values(gp).some((l) => (l || []).includes(id)) : (gp[ph] || []).includes(id)) leaving.push({ S, id, ph });
     }
     if (leaving.length) {
       const by = new Map();
       for (const l of leaving) { const k = l.S.id + '|' + l.id; if (!by.has(k)) by.set(k, { S: l.S, id: l.id, phs: [] }); by.get(k).phs.push(l.ph); }
-      add('info', 'To change in Godot', `In the plan, ${listNames([...by.values()].map((b) => `${firstName((M.people.get(b.id) || {}).name) || b.id} leaves ${b.S.name} (${b.phs.length === M.phases.length ? 'all day' : b.phs.join(', ')})`))}. Take them out of those scenes in Godot.`, [...new Set(leaving.map((l) => l.S.id))]);
+      add('info', 'To change in Godot', `In the plan, ${listNames([...by.values()].map((b) => `${firstName((M.people.get(b.id) || {}).name) || b.id} leaves ${b.S.name} (${b.phs.includes('any') || b.phs.length === sts(b.S).length ? 'always' : b.phs.map((t) => stName(b.S, t)).join(', ')})`))}. Take them out of those scenes in Godot.`, [...new Set(leaving.map((l) => l.S.id))]);
     }
   }
   // one-way ways and hubs

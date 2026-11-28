@@ -117,6 +117,13 @@ button,input,select,textarea{font:inherit;color:inherit}
 .tn.group .nm{color:var(--muted);font-style:italic}
 .tn.group.charts .nm{font-style:normal;color:var(--ink-2);font-weight:500}
 .tn.group.charts .ic{color:var(--ok)}
+.tn.group.states .nm{font-style:normal;color:var(--ink-2);font-weight:500}
+.tn.state .nm{color:var(--ink-2)}
+.tn.state.cur .nm{color:var(--ink);font-weight:600}
+.tn.state.cur .ic{color:var(--accent);fill:currentColor}
+.tn.state.cur .ic path{fill:currentColor}
+.tn.chart.off .nm{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 55%,transparent)}
+.tn.chart.off .ic{opacity:.5}
 /* guide lines: each branch runs a line down from under its arrow, with a tick to each child (├ └) */
 .tree-body li{position:relative}
 .tree-body ul ul > li::before,.tree-body ul ul > li::after{content:"";position:absolute;pointer-events:none;z-index:1;
