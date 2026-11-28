@@ -1,6 +1,6 @@
 [project]
 name = "cassetto"
-version = "0.1.0"
+version = "0.2.0.dev6"
 description = "A desktop suite for designing narrative and point-and-click games: Plastico (the world) and Puzzle Charts (the puzzles), in one project."
 readme = "README.md"
 license = "MIT"

@@ -34,6 +34,11 @@ CAPABILITIES = [
 ]
 
 
+def find_games(base: Path | None = None) -> list[dict]:
+    """The Godot games in ~/Desktop/Projects (and one folder down), for "Start from a Godot game"."""
+    return _godot.find_godot_projects(base or Path.home() / "Desktop" / "Projects")
+
+
 def godot_binary() -> str:
     return shutil.which("godot") or shutil.which("godot4") or ""
 

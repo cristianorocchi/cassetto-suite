@@ -166,3 +166,28 @@ test('tidy keeps every block on the grid and apart', () => {
     assert.equal(model.overlapping(placed, q.x, q.z, 6, 4, 0, new Set([q.id])).length, 0);
   }
 });
+
+test('a puzzle step with someone where the world does not put them then', () => {
+  const w = world([['pub', { people: { midnight: ['elda'] } }], ['bank']], both('pub', 'bank'),
+    { phases: ['day', 'midnight'], people: [{ id: 'elda', name: 'Elda, the vendor' }] });
+  const charts = (when, scene) => ({ charts: [{ id: 'c', name: 'Key', act: 1, edges: [], nodes: [
+    { id: 'n', kind: 'action', title: 'Ask Elda', scene, who: 'elda', when, gid: '', status: 'idea' }] }] });
+  assert.ok(!heads(model.derive(w, null, charts('midnight', 'pub'))).includes('Not there then'));   // she is there then
+  assert.ok(!heads(model.derive(w, null, charts('', 'pub'))).includes('Not there then'));           // any time: some time is enough
+  const M = model.derive(w, null, charts('day', 'pub'));
+  const nt = model.checks(M).find((i) => i.head === 'Not there then');
+  assert.ok(nt && nt.scenes[0] === 'pub' && /Ask Elda/.test(nt.text) && /day/.test(nt.text));
+  // the buttons that put her there, and open the step
+  assert.deepEqual(nt.fix, { place: { who: 'elda', scene: 'pub', when: 'day' }, steps: [{ chart: 'c', step: 'n' }] });
+  // it says where the world has her instead: nowhere at day, in the pub only at midnight
+  assert.match(nt.text, /At day the world doesn’t put Elda in any scene\. PUB has Elda at midnight\./);
+  const bank = model.checks(model.derive(w, null, charts('', 'bank'))).find((i) => i.head === 'Not there then');   // never in the bank
+  assert.ok(bank && /The world puts Elda in PUB \(midnight\)\./.test(bank.text));
+  assert.match(model.checks(model.derive(w, null, charts('midnight', 'bank'))).find((i) => i.head === 'Not there then').text,
+    /At midnight the world puts Elda in PUB\./);
+  // the player, and people the world doesn't have (that's a broken link, said elsewhere), aren't checked here
+  const other = { charts: [{ id: 'c', name: 'K', act: 1, edges: [], nodes: [
+    { id: 'a', kind: 'action', title: 'x', scene: 'bank', who: 'player', when: 'day' },
+    { id: 'b', kind: 'action', title: 'y', scene: 'bank', who: 'stranger', when: 'day' }] }] };
+  assert.ok(!heads(model.derive(w, null, other)).includes('Not there then'));
+});

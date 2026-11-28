@@ -4,15 +4,22 @@ A 3D model of a game's world, for planning and studying its structure: every sce
 its floor, every way between two scenes a path. It reads a Godot project directly and can build
 the changes you plan back into it.
 
-Start it from the **Plastico** icon on the desktop (or `./open-app.sh`, or `uv run plastico app`).
+In Cassetto it is one of the modules. On its own, start it with `./open-app.sh` or `uv run plastico app`.
 It opens in its own window at http://127.0.0.1:8766/. Closing the terminal window stops it.
 
 ## What you see
 
 - **Skeleton / Pictures.** Skeleton shows the structure only. Pictures lays each outdoor scene's
-  picture on its plate and stands each indoor scene's picture on its room, using the game's own art
-  for the chosen time of day. Scenes not in the game yet can get a sketch: drop it on the scene's
-  panel.
+  picture on its plate and stands each indoor scene's picture on the back edge of its room, using the
+  game's own art for the chosen time of day. A scene with scenes inside it, and a scene inside another,
+  lays its picture flat on its own block, so the pictures of a group never cover each other. Seen from
+  above (Map view, or the camera turned to look nearly straight down), every picture lies flat on its
+  block, the indoor rooms' too; tilted again, those stand back up. Pictures
+  keep their proportions (cropped to fit, never stretched). Scenes not in the game yet can get a
+  sketch: drop it on the scene's panel.
+- **Names.** Each scene's name sits under its picture. Where names would cover a picture, a badge or
+  each other, the less important one shrinks to its name only, then to a dot that opens on hover.
+  The **Names** button turns them off (a dot per scene; the selected scene keeps its name).
 - **Blocks.** Flat plates are outside scenes (third person), boxes are inside scenes (first person),
   small boxes are close-ups. A solid outline means the scene is in the game. Dashed means planned
   (an idea, or ready to build). Red means it is marked to delete. Floors stack: a scene on floor 1

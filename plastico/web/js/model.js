@@ -283,7 +283,7 @@ function listNames(names) {
 /** Everything worth knowing about the structure, worst first. */
 export function checks(M) {
   const issues = [];
-  const add = (level, head, text, scenes = [], links = []) => issues.push({ level, head, text, scenes, links });
+  const add = (level, head, text, scenes = [], links = [], fix = null) => issues.push({ level, head, text, scenes, links, ...(fix ? { fix } : {}) });
   for (const p of (M.game && M.game.problems) || []) add(p.level === 'error' ? 'error' : 'warn', 'In the game', p.text, p.scene ? [p.scene] : []);
 
   const live = [...M.scenes.values()].filter((s) => s.state !== 'delete');
@@ -353,6 +353,34 @@ export function checks(M) {
         add('warn', 'In two places', `${firstName((M.people.get(id) || {}).name) || id} is in ${listNames(ordered.map((s) => s.name))} at once (${p}). Take them out of one: the × on their name under People here.`, ordered.map((s) => s.id));
       }
     }
+    // a puzzle step with someone in a scene at a time of day, where the world doesn't have them then
+    const notThere = new Map();
+    for (const c of (M.charts && M.charts.charts) || []) for (const n of c.nodes) {
+      if (!n.who || n.who === 'player' || !n.scene || !M.people.has(n.who) || n.kind === 'goal' || n.kind === 'setup') continue;
+      const S = M.scenes.get(n.scene); if (!S || S.state === 'delete') continue;
+      const when = M.phases.includes(n.when) ? n.when : '';
+      if (peopleAt(M, S, when).some((w) => w.id === n.who)) continue;
+      const k = `${n.who}|${S.id}|${when}`;
+      if (!notThere.has(k)) notThere.set(k, { who: n.who, S, when, steps: [], refs: [] });
+      notThere.get(k).steps.push(`“${n.title || 'Untitled step'}” (${c.name})`);
+      notThere.get(k).refs.push({ chart: c.id, step: n.id });
+    }
+    for (const x of notThere.values()) {
+      const who = firstName((M.people.get(x.who) || {}).name) || x.who;
+      const has = (S, ph) => peopleAt(M, S, ph).some((w) => w.id === x.who);
+      // where the world has them instead: at that time, or (a step at any time) at the times it says
+      const at = live.filter((S) => S.id !== x.S.id && has(S, x.when)).map((S) => {
+        const ts = x.when ? [] : M.phases.filter((ph) => has(S, ph));
+        return S.name + (ts.length && ts.length < M.phases.length ? ` (${listNames(ts)})` : '');
+      });
+      const names = at.length > 3 ? `${at.slice(0, 3).join(', ')} and ${at.length - 3} more` : listNames(at);
+      const here = x.when ? M.phases.filter((ph) => has(x.S, ph)) : [];
+      let then = x.when ? (at.length ? ` At ${x.when} the world puts ${who} in ${names}.` : ` At ${x.when} the world doesn’t put ${who} in any scene.`)
+        : (at.length ? ` The world puts ${who} in ${names}.` : '');
+      if (here.length) then += ` ${x.S.name} has ${who} at ${listNames(here)}.`;
+      add('warn', 'Not there then', `${listNames(x.steps)} ${x.steps.length > 1 ? 'have' : 'has'} ${who} in ${x.S.name}${x.when ? ` at ${x.when}` : ''}, where the world doesn’t have ${who}${x.when ? ' then' : ' at any time'}.${then} Put ${who} there, or move the step in Puzzle Charts.`,
+        [x.S.id], [], { place: { who: x.who, scene: x.S.id, when: x.when }, steps: x.refs });
+    }
     // people the plan takes out of a scene the game puts them in: only Godot can do that
     const leaving = [];
     for (const S of live) for (const ph of M.phases) for (const id of awayAt(S, ph)) {
@@ -392,7 +420,7 @@ export function stats(M) {
   return {
     scenes: live.length, inGame: live.filter((s) => s.inGame).length,
     ways: pairs.length, waysInGame: pairs.filter((p) => p.state === 'game').length,
-    steps: [...M.steps.values()].reduce((n, l) => n + l.length, 0),
+    steps: [...M.steps.values()].reduce((n, l) => n + l.filter(({ node }) => node.kind !== 'goal' && node.kind !== 'setup').length, 0),
   };
 }
 

@@ -4,4 +4,4 @@ The suite is a small core (the open project, its modules, the ways they talk) an
 plug into it. Version 0.1 has two: Plastico (the world model) and Puzzle Charts (puzzle dependencies).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0.dev6"

@@ -1,7 +1,7 @@
 """Cassetto's local web server: the shell, the module pages, the core API and each module's API.
 
     /                      the shell (web/shell/)
-    /shared/...            what every page shares: the bridge to the shell, fonts
+    /shared/...            what every page shares: the bridge to the shell, the theme, the keys, fonts
     /m/<module>/...        a module's page and files, as the module serves them
     /api/core/...          the project, the events, the interfaces (this file)
     /api/<prefix>/...      a module's own API (the prefixes it claims)
@@ -25,6 +25,7 @@ from .. import __version__
 from ..integrations import godot as godot_link
 from ..paths import BASE, SHELL_WEB, default_projects_dir
 from . import project as projects
+from . import settings
 from .modules import Core, MissingInterface, NoProject
 
 PORT = 8767
@@ -223,6 +224,12 @@ class Handler(BaseHTTPRequestHandler):
             self.server.last_beat = time.monotonic()  # type: ignore[attr-defined]
             self.server.beats += 1  # type: ignore[attr-defined]
             return self._json({"ok": True})
+        if parts == ["settings", "keys"]:     # the user's keyboard shortcuts, the same in every project
+            if method == "PUT":
+                settings.save_keys(self._jbody().get("bindings"))
+            elif method != "GET":
+                return self._err(405, "method not allowed")
+            return self._json({"bindings": settings.load_keys(), "file": str(settings.keys_path())})
         if parts == ["recent"]:
             if method == "DELETE":
                 projects.forget(self._jbody().get("path", ""))
@@ -279,6 +286,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"result": core.call(parts[1], *args, caller=str(b.get("caller") or "page"))})
         if parts == ["fs"]:
             return self._json(_list_dir(one("path") or str(Path.home())))
+        if parts == ["godot-games"]:
+            return self._json({"games": godot_link.find_games()})
         if parts == ["plastico-worlds"]:
             return self._json({"worlds": _old_worlds(one("path"))})
         return self._err(404, "no such API")

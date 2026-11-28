@@ -22,20 +22,20 @@
     <div class="brand"><span class="eyebrow">Plastico</span><span class="brand-name">World model</span></div>
     <div class="cur-name" id="cur-name"></div>
     <div class="head-tools">
-      <button class="btn" id="btn-add" type="button" title="Add a scene: in an act, or inside another scene (N)">
+      <button class="btn" id="btn-add" data-keys="plastico.add" type="button" title="Add a scene: in an act, or inside another scene (N)">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg><span class="lbl">Add scene</span>
         </button>
-      <button class="btn" id="btn-route" type="button" aria-pressed="false" title="Find the shortest way between two scenes (R)">
+      <button class="btn" id="btn-route" data-keys="plastico.route" type="button" aria-pressed="false" title="Find the shortest way between two scenes (R)">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="3.5" cy="12.5" r="1.8"/><circle cx="12.5" cy="3.5" r="1.8"/><path d="M5.2 12.5h3.3a2.5 2.5 0 0 0 0-5h-1a2.5 2.5 0 0 1 0-5h3.3"/></svg><span class="lbl">Route</span>
       </button>
-      <button class="btn" id="btn-play" type="button" aria-pressed="false" title="Walk the world as the player would (P)">
+      <button class="btn" id="btn-play" data-keys="plastico.play" type="button" aria-pressed="false" title="Walk the world as the player would (P)">
         <svg viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg><span class="lbl">Play test</span>
       </button>
       <span class="sep-v"></span>
-      <button class="btn icon" id="btn-undo" type="button" aria-label="Undo" title="Undo (Ctrl+Z)">
+      <button class="btn icon" id="btn-undo" data-keys="plastico.undo" type="button" aria-label="Undo" title="Undo (Ctrl+Z)">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a4 4 0 0 1 0 8H7"/></svg>
       </button>
-      <button class="btn icon" id="btn-redo" type="button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
+      <button class="btn icon" id="btn-redo" data-keys="plastico.redo" type="button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a4 4 0 0 0 0 8H9"/></svg>
       </button>
       <span class="sep-v"></span>
@@ -76,15 +76,16 @@
     <div class="labels" id="labels"></div>
     <div class="stage-ui viewbar" id="viewbar">
       <div class="seg" role="group" aria-label="What to show">
-        <button type="button" id="v-skeleton" aria-pressed="true" title="The structure only (S)">
+        <button type="button" id="v-skeleton" data-keys="plastico.mode" aria-pressed="true" title="The structure only (S)">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 5.5 8 2.5l6 3v5l-6 3-6-3z"/><path d="M2 5.5l6 3 6-3M8 8.5v5"/></svg>Skeleton</button>
-        <button type="button" id="v-pictures" aria-pressed="false" title="The scenes' pictures (S)">
+        <button type="button" id="v-pictures" data-keys="plastico.mode" aria-pressed="false" title="The scenes' pictures (S)">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="m2.5 12 4-4 3 3 2-2 2.5 2.5"/><circle cx="11" cy="6" r="1.2"/></svg>Pictures</button>
       </div>
       <div class="seg" role="group" aria-label="Time of day" id="phases"></div>
       <div class="seg" role="group" aria-label="Labels">
-        <button type="button" id="v-people" aria-pressed="true" title="Who is where at this time of day">People</button>
-        <button type="button" id="v-steps" aria-pressed="true" title="How many puzzle steps happen in each scene">Puzzle steps</button>
+        <button type="button" id="v-names" data-keys="plastico.names" aria-pressed="true" title="The scenes' names (off: a dot per scene, its name shows when you point at it)">Names</button>
+        <button type="button" id="v-people" data-keys="plastico.people" aria-pressed="true" title="Who is where at this time of day">People</button>
+        <button type="button" id="v-steps" data-keys="plastico.steps" aria-pressed="true" title="How many puzzle steps happen in each scene">Puzzle steps</button>
       </div>
     </div>
     <div class="stage-ui banner" id="banner" hidden></div>
@@ -92,10 +93,10 @@
     <div class="stage-ui loading" id="loading">Loading the world…</div>
     <div class="stage-ui hint" id="hint">Drag a scene to move it (wheel while holding it: up or down a floor) · drag its dot onto another scene to join them · double-click the ground to add one · drag to pan, middle-drag to turn, wheel to zoom</div>
     <div class="stage-ui zoom">
-      <button class="btn icon" id="z-out" type="button" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button>
-      <button class="btn icon" id="z-in" type="button" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
-      <button class="btn icon" id="z-fit" type="button" aria-label="Fit the world to the screen" title="Fit the world to the screen (F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
-      <button class="btn small" id="z-top" type="button" aria-pressed="false" title="Look straight down, like a map (T)">Map view</button>
+      <button class="btn icon" id="z-out" data-keys="plastico.zoomOut" type="button" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button>
+      <button class="btn icon" id="z-in" data-keys="plastico.zoomIn" type="button" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+      <button class="btn icon" id="z-fit" data-keys="plastico.fit" type="button" aria-label="Fit the world to the screen" title="Fit the world to the screen (F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
+      <button class="btn small" id="z-top" data-keys="plastico.top" type="button" aria-pressed="false" title="Look straight down, like a map (T)">Map view</button>
     </div>
   </main>
 

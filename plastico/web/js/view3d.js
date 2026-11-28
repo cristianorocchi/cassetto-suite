@@ -1,7 +1,8 @@
 // The 3D model: every scene a block on its floor (plates outside, rooms inside), every way a
 // curve between them, labels and badges in HTML on top. Skeleton mode shows the structure only;
 // Pictures mode lays each outdoor scene's picture on its plate and stands each indoor one's on
-// its room like a postcard. Renders only when something changed.
+// its room like a postcard; seen from above (the map view, or the camera turned to look down) every
+// picture lies on its own block. Renders only when something changed.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
@@ -22,6 +23,17 @@ function colorOf(name) {
 
 // a scene's block: its footprint in whole grid cells (model.sizeOf), standing on its floor
 export function sceneSize(S) { return sizeOf(S); }
+
+// A picture laid on a w × d face keeps its proportions: it is cropped to fill the face (centred), not stretched.
+// Each face gets its own copy of the texture (the image itself is shared).
+function coverFit(tex, w, d) {
+  const img = tex.image; if (!img || !img.width || !img.height) return tex;
+  const t = tex.clone(); t.needsUpdate = true; t.userData.fitted = true;
+  const face = w / d, pic = img.width / img.height;
+  if (pic > face) { t.repeat.set(face / pic, 1); t.offset.set((1 - face / pic) / 2, 0); }
+  else { t.repeat.set(1, pic / face); t.offset.set(0, (1 - pic / face) / 2); }
+  return t;
+}
 
 export class View3D {
   constructor(stage, labels, cb) {
@@ -47,6 +59,7 @@ export class View3D {
     this.objs = new Map(); this.pairObjs = new Map(); this.lineMats = new Set(); this.textures = new Map();
     this.raycaster = new THREE.Raycaster();
     this.top = false; this.dirty = true; this.anim = null; this.drag = null; this.token = null;
+    this.above = false;       // looking down on the model (see lookingDown): every picture lies on its block
     this.data = null;
     this.readTheme();
     this.bindPointer();
@@ -91,7 +104,7 @@ export class View3D {
     for (const c of [...g.children]) {
       c.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
-        if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { if (m !== this._pickMat) m.dispose(); this.lineMats.delete(m); });
+        if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { if (m.map && m.map.userData.fitted) m.map.dispose(); if (m !== this._pickMat) m.dispose(); this.lineMats.delete(m); });
         if (o.isCSS2DObject && o.element.parentNode) o.element.parentNode.removeChild(o.element);
       });
       g.remove(c);
@@ -131,10 +144,15 @@ export class View3D {
     const mats = [sideMat, sideMat, sideMat, sideMat, sideMat, sideMat];
     const geo = new THREE.BoxGeometry(w, h, d); geo.translate(0, h / 2, 0);
     const pic = ui.mode === 'pictures' ? this.data.pictureUrl(S) : null;
+    // A picture lies flat on its own block when the scene is outdoors, or is part of a group (it has scenes
+    // inside it, or sits inside one): a standing card there would cover the blocks of the group.
+    const grouped = !!S.parent || [...this.data.M.scenes.values()].some((q) => q.parent === S.id);
+    // Seen from above, a standing card would show only as a strip behind its room: every picture lies flat then.
+    const flat = !!pic && (S.kind === 'outside' || grouped || this.above);
     let topMat = null;
-    if (pic && S.kind === 'outside') {
+    if (flat) {
       topMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: Math.max(faceOpacity, 0.75) });
-      this.loadTexture(pic, (t) => { topMat.map = t; topMat.needsUpdate = true; this.dirty = true; });
+      this.loadTexture(pic, (t) => { topMat.map = coverFit(t, w, d); topMat.needsUpdate = true; this.dirty = true; });
       mats[2] = topMat;
     }
     const block = new THREE.Mesh(geo, mats);
@@ -153,23 +171,25 @@ export class View3D {
     el.title = S.name || S.id;
     this.data.renderLabel(S, el);
     const lab = new CSS2DObject(el);
-    lab.center.set(0.5, 1);
-    lab.position.set(0, h + 0.3, 0);
+    // Skeleton: the name stands on the block. With pictures: the name hangs just under the picture, never on it.
+    if (flat) { lab.center.set(0.5, 0); lab.position.set(0, h + 0.02, d / 2); }
+    else if (pic) { lab.center.set(0.5, 0); lab.position.set(0, h + 0.1, -d / 2 + 0.05); }
+    else { lab.center.set(0.5, 1); lab.position.set(0, h + 0.3, 0); }
     g.add(lab);
-    let card = null, cardH = 0;
-    if (pic && S.kind !== 'outside') {
-      const cw = w * 1.12;
+    let card = null;
+    if (pic && !flat) {
+      // an indoor scene on its own: its picture stands like a postcard on the back edge of its block,
+      // as wide as the block, so it never leans over the blocks in front of it
+      const cw = w;
       const cMat = new THREE.SpriteMaterial({ color: 0xffffff, transparent: true, opacity: st === 'game' ? 1 : 0.7, sizeAttenuation: true });
       card = new THREE.Sprite(cMat);
       card.center.set(0.5, 0);
-      cardH = cw * 9 / 16;
-      card.scale.set(cw, cardH, 1);
-      card.position.set(0, h + 0.12, 0);
-      lab.position.y = h + 0.3 + cardH;
+      card.scale.set(cw, cw * 9 / 16, 1);
+      card.position.set(0, h + 0.12, -d / 2);
       card.userData.sceneId = S.id;
       this.loadTexture(pic, (t) => {
         cMat.map = t; cMat.needsUpdate = true;
-        const img = t.image; if (img && img.width) { const ch = cw * img.height / img.width; card.scale.set(cw, ch, 1); lab.position.y = h + 0.3 + ch; }
+        const img = t.image; if (img && img.width) card.scale.set(cw, cw * img.height / img.width, 1);
         this.dirty = true;
       });
       g.add(card);
@@ -177,7 +197,7 @@ export class View3D {
     this.sceneG.add(g);
     const links = [...this.data.M.pairs.values()].filter((P) => P.a === S.id || P.b === S.id).length;
     const basePrio = (this.data.M.start === S.id ? 300 : 0) + ({ outside: 40, inside: 20, closeup: 0 }[S.kind] || 0) + links * 3 + ((this.data.M.steps.get(S.id) || []).length ? 5 : 0);
-    const o = { g, block, edges, card, lab, el, S, size: { w, d, h }, mats: [sideMat, topMat, eMat, card && card.material].filter(Boolean), basePrio, prio: basePrio, lod: '', post: null };
+    const o = { g, block, edges, card, lab, el, S, size: { w, d, h }, flat: flat ? { w, d, h } : null, mats: [sideMat, topMat, eMat, card && card.material].filter(Boolean), basePrio, prio: basePrio, lod: '', post: null };
     this.setPost(o, S.floor);
     this.objs.set(S.id, o);
   }
@@ -381,7 +401,7 @@ export class View3D {
       }
       const ec = o.S.state === 'delete' ? this.T.danger : sel || st === 'route' || st === 'here' ? this.T.accent : o.S.state === 'game' ? this.T.ink : this.T.ink2;
       o.edges.material.color.copy(ec);
-      o.el.className = ['lab', ...this.data.labelClasses(o.S), st, o.lod].filter(Boolean).join(' ');
+      o.el.className = ['lab', ...this.data.labelClasses(o.S), st, o.lod, o.lod === 'mini' && o.tucked ? 'tucked' : ''].filter(Boolean).join(' ');
       o.prio = (st === 'sel' || st === 'here' || st === 'route' ? 1000 : st === 'avail' ? 200 : st === 'dim' ? -500 : 0) + o.basePrio;
     }
     for (const [k, po] of this.pairObjs) {
@@ -769,6 +789,7 @@ export class View3D {
       moving = true;
     }
     const changed = this.controls.update();
+    this.lookingDown();
     if (changed || this.dirty || moving) {
       this.renderer.render(this.scene, this.camera);
       this.css2d.render(this.scene, this.camera);
@@ -777,11 +798,51 @@ export class View3D {
     }
   }
 
+  // From above (the map view, or the camera turned until it looks nearly straight down) the indoor
+  // pictures lie on their rooms like the outdoor ones on their plates; tilted again, they stand up. The
+  // two angles differ so that a camera resting near the edge doesn't flip them back and forth.
+  lookingDown() {
+    if (!this.data || !this.data.ui || this.data.ui.mode !== 'pictures' || this.drag) return;
+    const off = this.camera.position.clone().sub(this.controls.target);
+    const phi = Math.acos(THREE.MathUtils.clamp(off.y / (off.length() || 1), -1, 1));
+    const above = this.top || phi < (this.above ? 0.42 : 0.32);
+    if (above === this.above) return;
+    this.above = above;
+    this.rebuild();
+  }
+
   // Labels are HTML at a fixed size: where they would overlap, the more important one (selected,
   // the start, outdoor scenes, scenes with many ways) keeps its full card, the next shows only its
-  // name, the rest shrink to a dot that opens on hover.
+  // name, the rest shrink to a dot that opens on hover. Pictures and the badges on the ways (locks,
+  // "leads nowhere") are placed first: a name never covers them. With names turned off every scene
+  // shows only its dot, except the one selected (or being played or routed).
   declutter() {
     const W = this.size.w, H = this.size.h, v = new THREE.Vector3();
+    const names = !this.data || !this.data.ui || this.data.ui.names !== false;
+    const placed = [];        // [x0, y0, x1, y1, owner scene id or '']
+    const proj = (p) => { v.copy(p).project(this.camera); return v.z > 1 || v.z < -1 ? null : [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; };
+    const boxOf = (pts, owner) => {
+      const s = pts.map(proj).filter(Boolean); if (!s.length) return;
+      placed.push([Math.min(...s.map((q) => q[0])), Math.min(...s.map((q) => q[1])), Math.max(...s.map((q) => q[0])), Math.max(...s.map((q) => q[1])), owner]);
+    };
+    // the pictures: a standing card, or the picture on a block's top face
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+    for (const o of this.objs.values()) {
+      if (o.card && o.card.material.map) {
+        const b = o.card.getWorldPosition(new THREE.Vector3()), sx = o.card.scale.x / 2, sy = o.card.scale.y;
+        boxOf([b.clone().addScaledVector(right, -sx), b.clone().addScaledVector(right, sx),
+          b.clone().addScaledVector(right, -sx).addScaledVector(up, sy), b.clone().addScaledVector(right, sx).addScaledVector(up, sy)], o.S.id);
+      } else if (o.flat) {
+        const { w, d, h } = o.flat, c = o.g.position;
+        boxOf([[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => new THREE.Vector3(c.x + i * w / 2, c.y + h, c.z + j * d / 2)), o.S.id);
+      }
+    }
+    // the badges on the ways, where the browser put them
+    const host = this.labels.getBoundingClientRect();
+    for (const b of this.labels.querySelectorAll('.badge')) {
+      const r = b.getBoundingClientRect(); if (!r.width) continue;
+      placed.push([r.left - host.left, r.top - host.top, r.right - host.left, r.bottom - host.top, '']);
+    }
     const items = [];
     for (const o of this.objs.values()) {
       const el = o.el;
@@ -796,25 +857,34 @@ export class View3D {
         if (!full[0]) continue;
         o.sz = { full, comp };
       }
-      o.lab.getWorldPosition(v).project(this.camera);
-      if (v.z > 1 || v.z < -1) continue;
-      items.push({ o, x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H });
+      const p = proj(o.lab.getWorldPosition(new THREE.Vector3()));
+      if (!p) continue;
+      items.push({ o, x: p[0], y: p[1], cy: o.lab.center.y });
     }
     items.sort((a, b) => b.o.prio - a.o.prio);
-    const placed = [];
-    const free = (r) => !placed.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1]);
+    const free = (r, owner) => !placed.some((q) => q[4] !== owner && r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1]);
     for (const it of items) {
       let lod = 'mini';
-      for (const [name, [w, h]] of [['', it.o.sz.full], ['compact', it.o.sz.comp]]) {
-        const r = [it.x - w / 2 - 3, it.y - h - 3, it.x + w / 2 + 3, it.y + 3];
-        if (free(r) || (name === 'compact' && it.o.prio >= 1000)) { placed.push(r); lod = name; break; }
+      const must = it.o.prio >= 1000;           // selected, the scene played or routed: always readable
+      if (names || must || it.o.prio >= 200) {
+        for (const [name, [w, h]] of [['', it.o.sz.full], ['compact', it.o.sz.comp]]) {
+          const top = it.y - h * it.cy;
+          const r = [it.x - w / 2 - 3, top - 3, it.x + w / 2 + 3, top + h + 3];
+          if (free(r, it.o.S.id) || (name === 'compact' && must)) { placed.push([...r, it.o.S.id]); lod = name; break; }
+        }
       }
-      if (lod === 'mini') placed.push([it.x - 7, it.y - 14, it.x + 7, it.y]);
+      // a dot that would land on a picture, a badge or another name is tucked away (the block can still be clicked)
+      let tucked = false;
+      if (lod === 'mini') {
+        const top = it.y - 14 * it.cy, r = [it.x - 7, top, it.x + 7, top + 14];
+        if (free(r, it.o.S.id) || must) placed.push([...r, it.o.S.id]); else tucked = true;
+      }
       if (it.o.lod !== lod) {
         it.o.el.classList.toggle('compact', lod === 'compact');
         it.o.el.classList.toggle('mini', lod === 'mini');
         it.o.lod = lod;
       }
+      if (it.o.tucked !== tucked) { it.o.el.classList.toggle('tucked', tucked); it.o.tucked = tucked; }
     }
   }
 
