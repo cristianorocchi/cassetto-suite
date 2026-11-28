@@ -156,12 +156,21 @@ its scene in Plastico. A chart's panel lists its scenes and people with their st
 highlights those steps) and the scenes of its act it doesn't use yet. With an act on screen, Plastico
 lists the act's charts and its scenes with no puzzle step.
 
-- **The project tree** (left, Ctrl+B) shows acts › the act's charts, then its scenes › scenes inside them ›
-  the charts with steps in each scene (with how many) or pinned to it. A chart for an act the world doesn't
-  have goes in a group of its own. The act on screen has a mark. Steps are counted the
-  same everywhere: every node but the end goals and the scene setups. A scene opens in Plastico, a chart in Puzzle
-  Charts, an act filters Plastico to it. It reloads on every `world.changed` / `puzzles.changed`, and
-  follows what the modules select.
+- **The project tree** (left, Ctrl+B) shows acts › *Act charts* (the act's charts), then its scenes › scenes
+  inside them › the charts with steps in each scene (with how many) or pinned to it. Guide lines show what is
+  inside what. A chart for an act the world doesn't have goes in a group of its own. The act on screen has a
+  mark. Steps are counted the same everywhere: every node but the end goals and the scene setups. A scene opens
+  in Plastico, a chart in Puzzle Charts, an act filters Plastico to it. It reloads on every `world.changed` /
+  `puzzles.changed`, and follows what the modules select.
+- **Dragging in the tree** (as in Godot's scene tree) moves things. The row that would take the drop lights
+  up. A row that can't take it hands it to the nearest row above that can. Resting on a closed branch opens it.
+  - A scene dropped on a scene goes inside it, with the scenes inside it. Plastico places it next to its new
+    parent on the map, as its *Inside* field does, and the move can be undone there.
+  - A scene dropped on an act goes straight into that act.
+  - A chart dropped on an act or its *Act charts* moves to that act (`puzzles.set_act`). Taken from under a
+    scene, it is unpinned from there too. It stays under a scene while it has steps placed there.
+  - A chart dropped on a scene is pinned to it. Taken from another scene, it moves its pin.
+  - Siblings stay sorted by name: dragging changes where a thing is, not its place in the list.
 - **Changes from outside.** The core notices edits made outside the app, by an editor, git or Claude,
   within two seconds, and both pages follow.
 - **A missing reference** is a warning, never an error. It shows in four places: the step's panel,

@@ -1014,7 +1014,7 @@ function parentField(s) {
   }
   return box;
 }
-function setParent(id, parent) {
+function setParent(id, parent, focus = true) {
   const w = S.world;
   if (parent && (parent === id || model.descendantsOf(w, id).has(parent))) return;
   const sc = w.scenes.find((q) => q.id === id); if (!sc) return;
@@ -1037,7 +1037,49 @@ function setParent(id, parent) {
     }
     x.scenes.find((q) => q.id === id).parent = parent || '';
   });
-  if (P) view.focus(id);
+  if (P && focus) view.focus(id);
+}
+// What the suite's project tree asks when something is dragged in it (one undoable edit each). Returns
+// a line saying what changed, or '' when nothing did; throws with the reason when it can't be done.
+//   {kind: 'scene', id, parent}       the scene goes inside another, with the scenes inside it
+//   {kind: 'scene', id, act}          the scene goes straight into an act (out of the scene it was in)
+//   {kind: 'pin', chart, scene, from} the chart is pinned to a scene (and unpinned from `from`, if it was)
+//   {kind: 'unpin', chart, from}      the chart is unpinned from a scene
+function treeMove(m) {
+  const w = S.world;
+  const find = (id) => w.scenes.find((q) => q.id === id);
+  const name = (id) => { const q = find(id); return q ? sceneLabel(q) : id; };
+  if (m.kind === 'scene') {
+    const sc = find(m.id); if (!sc) throw new Error(`There’s no scene ${m.id} in this world.`);
+    if (m.parent) {
+      if (!find(m.parent)) throw new Error(`There’s no scene ${m.parent} in this world.`);
+      if (m.parent === m.id || model.descendantsOf(w, m.id).has(m.parent)) throw new Error('A scene can’t go inside itself, or inside a scene that is in it.');
+      if (sc.parent === m.parent) return '';
+      setParent(m.id, m.parent, false);
+      return `${name(m.id)} is inside ${name(m.parent)} now.`;
+    }
+    if (!w.acts.some((a) => a.id === m.act)) throw new Error(`There’s no act ${m.act} in this world.`);
+    if (!sc.parent && sc.act === m.act) return '';
+    edit((x) => {
+      const q = x.scenes.find((t) => t.id === m.id); q.parent = ''; q.act = m.act;
+      for (const k of model.descendantsOf(x, m.id)) x.scenes.find((t) => t.id === k).act = m.act;
+    });
+    return `${name(m.id)} is straight in act ${m.act} now.`;
+  }
+  if (m.kind === 'pin' || m.kind === 'unpin') {
+    if (m.scene && !find(m.scene)) throw new Error(`There’s no scene ${m.scene} in this world.`);
+    const from = m.from && m.from !== m.scene ? find(m.from) : null;
+    const pinnedFrom = !!(from && (from.charts || []).includes(m.chart));
+    const to = m.kind === 'pin' ? find(m.scene) : null;
+    const pinnedTo = !!(to && (to.charts || []).includes(m.chart));
+    if (!pinnedFrom && (!to || pinnedTo)) return '';
+    edit((x) => {
+      if (to && !pinnedTo) { const t = x.scenes.find((q) => q.id === to.id); t.charts = [...(t.charts || []), m.chart]; }
+      if (pinnedFrom) { const f = x.scenes.find((q) => q.id === from.id); f.charts = (f.charts || []).filter((c) => c !== m.chart); }
+    });
+    return to ? `Pinned to ${name(to.id)}${pinnedFrom ? `, not to ${name(from.id)} any more` : ''}.` : `Unpinned from ${name(from.id)}.`;
+  }
+  throw new Error('Plastico doesn’t know that move.');
 }
 // --- the puzzle charts of a scene. A chart is here when one of its steps is placed here (as Puzzle Charts
 // says, nothing to keep in step); a chart can also be pinned here by hand, before it has steps here.
@@ -1722,6 +1764,13 @@ if (CS) {
   });
   CS.register({
     flush: () => flushSave(),
+    move: async (m) => {
+      for (let i = 0; i < 50 && !S.world; i++) await new Promise((r) => setTimeout(r, 100));
+      if (!S.world) throw new Error('Plastico hasn’t loaded the world yet.');
+      const said = treeMove(m);
+      if (said) await flushSave();
+      return said;
+    },
     navigate: async (t) => {
       if (!t) return;
       for (let i = 0; i < 50 && !S.world; i++) await new Promise((r) => setTimeout(r, 100));

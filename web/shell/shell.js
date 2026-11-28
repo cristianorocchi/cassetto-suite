@@ -335,6 +335,7 @@
     scene: 'M2 5.5 8 2.5l6 3v5l-6 3-6-3z M2 5.5l6 3 6-3M8 8.5v5',
     sceneIn: 'M3 4h10v8H3z M6 7h4v3H6z',
     chart: ICONS.puzzles,
+    charts: FOLDER,
     group: 'M2 4.5h12M2 8h12M2 11.5h8',
   };
   // While the project is being closed, opened or replaced, the server may already have no project while
@@ -357,7 +358,7 @@
   $('#btn-tree').addEventListener('click', toggleTree);
   $('#tree-collapse').addEventListener('click', () => {
     if (!S.tree || !S.tree.cat) return;
-    for (const a of S.tree.cat.acts) S.collapsed.add(`act:${a[0]}`);
+    for (const a of S.tree.cat.acts) { S.collapsed.add(`act:${a[0]}`); S.collapsed.add(`actcharts:${a[0]}`); }
     for (const sc of S.tree.cat.hierarchy || []) S.collapsed.add(`scene:${sc.id}`);
     S.collapsed.add('group:loose'); saveCollapsed(); renderTree();
   });
@@ -373,12 +374,22 @@
     renderTree();
     const on = document.querySelector('#tree-body .tn.sel'); if (on && fromModule) on.scrollIntoView({ block: 'nearest' });
   }
-  function treeNode(key, cls, icon, name, count, depth, kids, open, onPick, title) {
+  // A row of the tree. Its children are always built, and hidden while it is collapsed, so a branch can
+  // open under a drag without the tree being drawn again (which would end the drag).
+  //   drag: what the row is when it is dragged ({kind: 'scene', id, parent, act} or {kind: 'chart', id, act, from, pinned})
+  //   drop: what it takes when something is dropped on it ({type: 'act'|'actcharts', act} or {type: 'scene', scene})
+  function treeNode(key, cls, icon, name, count, depth, kids, open, onPick, title, drag, drop) {
     const li = el('li'); li.setAttribute('role', 'none');
     const row = el('div', 'tn ' + cls); row.setAttribute('role', 'treeitem'); row.tabIndex = 0; row.dataset.key = key;
     row.style.paddingLeft = `${4 + depth * 14}px`;
     const tw = el('span', 'tw'); if (kids) { tw.innerHTML = TW; row.setAttribute('aria-expanded', String(open)); }
-    const toggle = (e) => { e.stopPropagation(); if (S.collapsed.has(key)) S.collapsed.delete(key); else S.collapsed.add(key); saveCollapsed(); renderTree(); };
+    let ul = null;
+    const setOpen = (on) => {
+      if (!kids || on === !ul.hidden) return;
+      if (on) S.collapsed.delete(key); else S.collapsed.add(key);
+      saveCollapsed(); ul.hidden = !on; row.setAttribute('aria-expanded', String(on));
+    };
+    const toggle = (e) => { e.stopPropagation(); setOpen(ul.hidden); };
     if (kids) tw.addEventListener('click', toggle);
     row.append(tw, icon ? iconEl(icon) : el('span', 'ic'), el('span', 'nm', name));
     if (count != null) row.append(el('span', 'ct', String(count)));
@@ -387,17 +398,121 @@
     row.addEventListener('dblclick', (e) => { if (kids) toggle(e); });
     row.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (onPick) onPick(); }
-      else if (e.key === 'ArrowRight' && kids && !open) toggle(e);
-      else if (e.key === 'ArrowLeft' && kids && open) toggle(e);
+      else if (e.key === 'ArrowRight' && kids && ul.hidden) toggle(e);
+      else if (e.key === 'ArrowLeft' && kids && !ul.hidden) toggle(e);
       else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        const rows = [...document.querySelectorAll('#tree-body .tn')]; const i = rows.indexOf(row);
+        const rows = [...document.querySelectorAll('#tree-body .tn')].filter((r) => r.offsetParent !== null); const i = rows.indexOf(row);
         const next = rows[i + (e.key === 'ArrowDown' ? 1 : -1)]; if (next) next.focus();
       }
     });
     li.append(row);
-    if (kids && open) { const ul = el('ul'); ul.setAttribute('role', 'group'); kids.forEach((k) => ul.append(k)); li.append(ul); }
+    row._drag = drag || null; row._drop = drop || null; row._open = setOpen;
+    if (drag) { row.draggable = true; row.classList.add('can-drag'); }
+    if (kids) {
+      ul = el('ul'); ul.setAttribute('role', 'group'); ul.hidden = !open;
+      ul.style.setProperty('--gx', `${12 + depth * 14}px`);      // where this branch's guide line runs: under the arrow
+      kids.forEach((k, i) => { k.firstChild._up = row; if (!k.querySelector(':scope > ul')) k.classList.add('leaf'); if (i === kids.length - 1) k.classList.add('last'); ul.append(k); });
+      li.append(ul);
+    }
     return li;
+  }
+
+  /* -------- moving things in the tree by dragging them (as in Godot's scene tree) */
+  // A scene goes inside another scene (dropped on it) or straight into an act (dropped on the act). A chart
+  // goes to another act (dropped on the act or its "Act charts"), or is pinned to a scene (dropped on it).
+  // A row that can't take what is dragged hands it to the nearest row above it that can.
+  function dropTarget(row) {
+    const D = S.drag; if (!D) return null;
+    const parentOf = new Map(((S.tree && S.tree.cat && S.tree.cat.hierarchy) || []).map((q) => [q.id, q.parent || '']));
+    const inside = (id, anc) => { for (let p = parentOf.get(id), g = 0; p && g < 200; p = parentOf.get(p), g++) if (p === anc) return true; return false; };
+    for (let r = row; r; r = r._up) {
+      const T = r._drop; if (!T) continue;
+      if (D.kind === 'scene') {
+        if (T.type === 'actcharts') continue;
+        if (T.type === 'scene') {
+          if (T.scene === D.id || inside(T.scene, D.id) || T.scene === D.parent) return null;
+          return { row: r, T };
+        }
+        return !D.parent && D.act === T.act ? null : { row: r, T };
+      }
+      if (T.type === 'scene') return T.scene === D.from || (T.charts || []).includes(D.id) ? null : { row: r, T };
+      return String(D.act) === T.act && !(D.from && D.pinned) ? null : { row: r, T };
+    }
+    return null;
+  }
+  function clearDrop() { document.querySelectorAll('#tree-body .drop-in').forEach((r) => r.classList.remove('drop-in')); }
+  async function plasticoHooks() {
+    if (!modules().some((m) => m.id === 'plastico')) throw new Error('This project has no Plastico.');
+    frameFor('plastico');     // loaded (hidden) if it isn't yet: the move goes through its page, with its undo
+    for (let i = 0; i < 150; i++) { const l = S.links.get('plastico'); if (l && l.hooks.move) return l.hooks; await sleep(100); }
+    throw new Error('Plastico didn’t answer. Try again in a moment.');
+  }
+  // one move at a time, in the order they were dropped
+  let moves = Promise.resolve();
+  function treeDrop(D, T) { moves = moves.then(() => moveNow(D, T)); return moves; }
+  async function moveNow(D, T) {
+    try {
+      const said = [];
+      if (D.kind === 'scene') {
+        const P = await plasticoHooks();
+        said.push(await P.move(T.type === 'scene' ? { kind: 'scene', id: D.id, parent: T.scene } : { kind: 'scene', id: D.id, act: T.act }));
+      } else if (T.type === 'scene') {
+        const P = await plasticoHooks();
+        said.push(await P.move({ kind: 'pin', chart: D.id, scene: T.scene, from: D.pinned ? D.from : '' }));
+      } else {
+        if (String(D.act) !== T.act) {
+          if (!/^\d+$/.test(T.act) || +T.act < 1 || +T.act > 99) throw new Error(`A chart can only go to an act numbered 1 to 99, not “${T.act}”.`);
+          const pz = S.links.get('puzzles'); if (pz && pz.hooks.flush) await pz.hooks.flush();   // its own unsaved changes first
+          await api('POST', '/api/core/call/puzzles.set_act', { args: [D.id, Number(T.act)], caller: 'shell' });
+          said.push(`${D.name} is in act ${T.act} now.`);
+        }
+        if (D.from && D.pinned) { const P = await plasticoHooks(); said.push(await P.move({ kind: 'unpin', chart: D.id, from: D.from })); }
+        else if (D.from) said.push(`It stays under ${D.fromName} while it has steps placed there.`);
+      }
+      const msg = said.filter(Boolean).join(' ');
+      if (msg) toast(msg);
+      loadTreeSoon();
+    } catch (e) { toast(`Couldn’t move it: ${e.message}`, 'bad'); }
+  }
+  {
+    const body = $('#tree-body');
+    let hoverRow = null, hoverTimer = 0;
+    body.addEventListener('dragstart', (e) => {
+      const row = e.target.closest && e.target.closest('.tn');
+      if (!row || !row._drag) { e.preventDefault(); return; }
+      S.drag = row._drag;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', row.textContent);
+      requestAnimationFrame(() => row.classList.add('dragging'));
+    });
+    body.addEventListener('dragover', (e) => {
+      if (!S.drag) return;
+      const row = e.target.closest && e.target.closest('.tn');
+      const t = row ? dropTarget(row) : null;
+      clearDrop();
+      if (row !== hoverRow) {      // resting on a closed branch opens it, as in Godot
+        hoverRow = row; clearTimeout(hoverTimer);
+        if (row && row.getAttribute('aria-expanded') === 'false') hoverTimer = setTimeout(() => { if (hoverRow === row && S.drag) row._open(true); }, 650);
+      }
+      if (!t) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      t.row.classList.add('drop-in');
+    });
+    body.addEventListener('dragleave', (e) => { if (!body.contains(e.relatedTarget)) { clearDrop(); hoverRow = null; clearTimeout(hoverTimer); } });
+    body.addEventListener('drop', (e) => {
+      const D = S.drag; const row = e.target.closest && e.target.closest('.tn');
+      const t = D && row ? dropTarget(row) : null;
+      clearDrop();
+      if (!t) return;
+      e.preventDefault();
+      treeDrop(D, t.T);
+    });
+    body.addEventListener('dragend', () => {
+      S.drag = null; hoverRow = null; clearTimeout(hoverTimer); clearDrop();
+      body.querySelectorAll('.dragging').forEach((r) => r.classList.remove('dragging'));
+      if (S.treeLater) { S.treeLater = false; renderTree(); }
+    });
   }
   function iconEl(d) { const s = icon(d); s.setAttribute('class', 'ic'); return s; }
   function renderTree() {
@@ -406,6 +521,7 @@
     $('#btn-tree').hidden = !project();
     box.hidden = !project() || !S.treeOn;
     if (box.hidden) return;
+    if (S.drag) { S.treeLater = true; return; }     // drawn again when the drag ends: redrawing now would end it
     const keep = document.activeElement && body.contains(document.activeElement) ? document.activeElement.dataset.key : null;
     body.textContent = '';
     if (!S.tree) { body.append(el('div', 'tree-empty', 'Loading…')); return; }
@@ -427,7 +543,8 @@
       const n = treeNode(`chart:${q.id}:${cid}`, 'chart' + (c ? '' : ' missing') + (sel.chart === cid ? ' sel' : ''), IC.chart,
         c ? c.name : 'Missing chart', c ? (here || null) : null, depth, null, false,
         () => { if (!c) { toast('That chart isn’t in the project any more: take it off the scene in Plastico.', 'bad'); return; } treeSelect({ chart: cid }); show('puzzles', { chart: cid }); },
-        c ? `${c.name} · act ${c.act} · ${here ? `${plural(here, 'step')} in ${q.name}, of ${stepsOf(c)}` : `pinned to ${q.name}, no steps there yet`}` : `Chart ${cid} was deleted`);
+        c ? `${c.name} · act ${c.act} · ${here ? `${plural(here, 'step')} in ${q.name}, of ${stepsOf(c)}` : `pinned to ${q.name}, no steps there yet`}` : `Chart ${cid} was deleted`,
+        c ? { kind: 'chart', id: cid, name: c.name, act: c.act, from: q.id, fromName: q.name || q.id, pinned: (q.charts_pinned || []).includes(cid) } : null);
       return n;
     };
     const sceneNode = (q, depth) => {
@@ -437,14 +554,16 @@
       return treeNode(key, 'scene' + (q.delete ? ' gone' : '') + (sel.scene === q.id && !sel.chart ? ' sel' : ''), q.parent ? IC.sceneIn : IC.scene, q.name || q.id,
         null, depth, kids.length ? kids : null, !S.collapsed.has(key),
         () => { treeSelect({ scene: q.id }); show('plastico', { scene: q.id }); },
-        `${q.name} (${q.id})${q.delete ? ' · marked to delete' : ''}`);
+        `${q.name} (${q.id})${q.delete ? ' · marked to delete' : ''}`,
+        { kind: 'scene', id: q.id, parent: ids.has(q.parent) ? q.parent : '', act: q.act }, { type: 'scene', scene: q.id, charts: q.charts });
     };
     // a chart under its act: every chart once, in the act it is for, with all its steps
     const inScenes = new Map();
     for (const q of scenes) for (const cid of Object.keys(q.charts_from_steps || {})) inScenes.set(cid, (inScenes.get(cid) || 0) + 1);
     const actChart = (c, depth, keyAt) => treeNode(`chart:${keyAt}:${c.id}`, 'chart' + (sel.chart === c.id ? ' sel' : ''), IC.chart, c.name, stepsOf(c), depth, null, false,
       () => { treeSelect({ chart: c.id }); show('puzzles', { chart: c.id }); },
-      `${c.name} · act ${c.act} · ${plural(stepsOf(c), 'step')}${inScenes.get(c.id) ? `, in ${plural(inScenes.get(c.id), 'scene')}` : ', none placed in a scene yet'}`);
+      `${c.name} · act ${c.act} · ${plural(stepsOf(c), 'step')}${inScenes.get(c.id) ? `, in ${plural(inScenes.get(c.id), 'scene')}` : ', none placed in a scene yet'}`,
+      { kind: 'chart', id: c.id, name: c.name, act: c.act, from: '' });
     const byName = (a, b) => a.name.localeCompare(b.name);
     const root = el('ul'); root.setAttribute('role', 'group');
     for (const [aid, aname] of cat.acts) {
@@ -452,10 +571,15 @@
       const top = (byParent.get('') || []).filter((q) => q.act === aid);
       const count = scenes.filter((q) => q.act === aid).length;
       const own = [...charts.values()].filter((c) => String(c.act) === aid).sort(byName);
-      const kids = [...own.map((c) => actChart(c, 1, `act${aid}`)), ...top.map((q) => sceneNode(q, 1))];
+      // the act's charts in a group of their own ("Act charts"), then its scenes
+      const ck = `actcharts:${aid}`;
+      const group = own.length ? [treeNode(ck, 'group charts', IC.charts, 'Act charts', own.length, 1, own.map((c) => actChart(c, 2, `act${aid}`)),
+        !S.collapsed.has(ck), null, `The puzzle charts of act ${aid}. Drag a chart here to move it to this act.`, null, { type: 'actcharts', act: aid })] : [];
+      const kids = [...group, ...top.map((q) => sceneNode(q, 1))];
       root.append(treeNode(key, 'act' + (S.act === aid ? ' cur' : ''), IC.act, `Act ${aid}${aname ? ' · ' + aname : ''}`, count, 0, kids.length ? kids : null,
         !S.collapsed.has(key), () => { treeSelect(null); show('plastico', { act: aid }); },
-        `${plural(count, 'scene')} and ${plural(own.length, 'puzzle chart')} · show this act in Plastico${S.act === aid ? ' (it is on screen now)' : ''}`));
+        `${plural(count, 'scene')} and ${plural(own.length, 'puzzle chart')} · show this act in Plastico${S.act === aid ? ' (it is on screen now)' : ''}`,
+        null, { type: 'act', act: aid }));
     }
     // charts for an act the world doesn't have (deleted, or never made in Plastico)
     const actIds = new Set(cat.acts.map((a) => a[0]));

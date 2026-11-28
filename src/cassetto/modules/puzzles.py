@@ -222,6 +222,27 @@ class PuzzlesModule(Module):
         self.ctx.core.settle(self.id, chart=cid, created=True)
         return cid
 
+    def set_act(self, cid: str, act) -> dict:
+        """The chart goes to another act (the project tree's drag and drop). Returns {changed}."""
+        try:
+            act = int(act)
+        except (TypeError, ValueError):
+            raise ValueError(f"A chart's act is a number from 1 to 99, not {act!r}.") from None
+        if not 1 <= act <= 99:
+            raise ValueError(f"A chart's act is a number from 1 to 99, not {act}.")
+        f = self._file(cid)
+        d = self._read(f) if f.exists() else None
+        if d is None or int(d.get("v", 1)) > CHART_VERSION:
+            raise ValueError("That chart isn't in the project any more.")
+        if d.get("act") == act:
+            return {"changed": False}
+        d["act"] = act
+        d["updatedAt"] = int(time.time() * 1000)
+        d["rev"] = "move:" + secrets.token_hex(3)
+        self.write(cid, d)
+        self.ctx.core.settle(self.id, chart=cid, reason="set_act")
+        return {"changed": True}
+
     def rename_scene(self, old: str, new: str) -> dict:
         return self._relink("scene", old, new, "rename_scene")
 
@@ -311,6 +332,8 @@ class PuzzlesModule(Module):
                       "() -> {charts: [{id, name, act, nodes: [{id, kind, title, scene, who, when, gid, status}], edges: [{from, to}]}]}"),
             Interface("puzzles.create_chart", self.create_chart,
                       "(name, act=1) -> id: a new chart with just its end goal, in that act."),
+            Interface("puzzles.set_act", self.set_act,
+                      "(chart id, act) -> {changed}: the chart goes to that act (1 to 99)."),
             Interface("puzzles.rename_scene", self.rename_scene,
                       "(old, new) -> {steps, charts}: the steps placed in scene `old` move to `new`."),
             Interface("puzzles.add_to_world", self.add_to_world,

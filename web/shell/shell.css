@@ -115,6 +115,19 @@ button,input,select,textarea{font:inherit;color:inherit}
 .tn.gone .nm{text-decoration:line-through;color:var(--muted)}
 .tn.missing .nm{color:var(--danger);font-style:italic}
 .tn.group .nm{color:var(--muted);font-style:italic}
+.tn.group.charts .nm{font-style:normal;color:var(--ink-2);font-weight:500}
+.tn.group.charts .ic{color:var(--ok)}
+/* guide lines: each branch runs a line down from under its arrow, with a tick to each child (├ └) */
+.tree-body li{position:relative}
+.tree-body ul ul > li::before,.tree-body ul ul > li::after{content:"";position:absolute;pointer-events:none;z-index:1;
+  border-color:color-mix(in srgb,var(--muted) 45%,transparent);border-style:solid;border-width:0}
+.tree-body ul ul > li::before{left:var(--gx);top:0;bottom:0;border-left-width:1px}
+.tree-body ul ul > li.last::before{bottom:auto;height:13px}
+.tree-body ul ul > li::after{left:var(--gx);top:13px;width:7px;border-top-width:1px}
+.tree-body ul ul > li.leaf::after{width:20px}
+/* dragging (as in Godot's scene tree): the row being dragged, and the row it would go into */
+.tn.dragging{opacity:.45}
+.tn.drop-in{background:color-mix(in srgb,var(--accent) 14%,var(--surface));box-shadow:inset 0 0 0 1.5px var(--accent)}
 .tree-empty{padding:10px 12px;color:var(--muted);font-size:12.5px}
 .frames iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:var(--paper)}
 .loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);background:var(--paper)}

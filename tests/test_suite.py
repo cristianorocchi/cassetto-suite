@@ -20,7 +20,7 @@ def test_new_project_has_manifest_and_module_folders(core, home):
     assert (p.path / "plastico" / "world.json").is_file()
     assert (p.path / "puzzles" / "charts").is_dir()
     assert {i["name"] for i in core.interfaces()} == {"world.catalog", "world.add_person", "world.add_scene", "world.place_person",
-                                                     "puzzles.charts", "puzzles.create_chart", "puzzles.rename_scene",
+                                                     "puzzles.charts", "puzzles.create_chart", "puzzles.set_act", "puzzles.rename_scene",
                                                      "puzzles.references", "puzzles.add_to_world"}
 
 
@@ -114,6 +114,22 @@ def test_renaming_a_scene_moves_its_steps_and_missing_scenes_are_reported(core, 
     d = json.loads((puz.dir / "c1.json").read_text())
     assert d["nodes"][0]["scene"] == "old_harbour" and d["nodes"][1]["scene"] == "tower"
     assert any(e["type"] == "puzzles.changed" and e["source"] == "puzzles" for e in core.events.since(seq))
+
+
+def test_a_chart_moves_to_another_act(core, home):
+    core.create_project(home / "p", "P")
+    cid = core.call("puzzles.create_chart", "The key", 1)
+    puz = core.modules["puzzles"]
+    seq = core.events.seq
+    assert core.call("puzzles.set_act", cid, 2) == {"changed": True}
+    assert json.loads((puz.dir / f"{cid}.json").read_text())["act"] == 2
+    assert any(e["type"] == "puzzles.changed" for e in core.events.since(seq))
+    assert core.call("puzzles.set_act", cid, "2") == {"changed": False}
+    for bad in (0, 100, "two"):
+        with pytest.raises(ValueError):
+            core.call("puzzles.set_act", cid, bad)
+    with pytest.raises(ValueError):
+        core.call("puzzles.set_act", "nochart", 1)
 
 
 def test_outside_edits_are_announced(core, home):
