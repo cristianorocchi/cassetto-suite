@@ -665,10 +665,10 @@ def test_the_act_on_screen_is_the_same_in_every_module(server, browser, home):
     page, errors = open_shell(browser, srv.url)
     pl = frame(page, "plastico")
     pl.wait_for_selector("#acts .filter >> text=Act 2")
-    # the tree: the chart under its act, before the act's scenes
+    # the tree: the chart under its act's "Act charts", before the act's scenes
     page.wait_for_selector("#tree:not([hidden]) .tn.chart")
     names = [r[2] for r in tree_rows(page)]
-    assert names[:3] == ["Act 1 · Arrival", "The key", "Pub"], names
+    assert names[:4] == ["Act 1 · Arrival", "Act charts", "The key", "Pub"], names
 
     pl.click("#acts .filter >> text=Act 2")
     page.wait_for_selector("#tree-body .tn.act.cur >> text=Act 2")
@@ -687,7 +687,7 @@ def test_the_act_on_screen_is_the_same_in_every_module(server, browser, home):
     assert on_disk() == [("The bank job", 2), ("The key", 1)]
     page.wait_for_function("[...document.querySelectorAll('#tree-body .tn')].some(r => r.textContent.startsWith('The bank job'))")
     names = [r[2] for r in tree_rows(page)]
-    assert names[names.index("Act 2 · Keep the change") + 1] == "The bank job", names
+    assert names[names.index("Act 2 · Keep the change") + 1:][:2] == ["Act charts", "The bank job"], names
 
     # a chart of act 1 opened here: Plastico shows act 1 too
     pz.click("#chart-list .chart-item >> text=The key")
@@ -700,6 +700,65 @@ def test_the_act_on_screen_is_the_same_in_every_module(server, browser, home):
     pz.click("#chart-list .chart-item >> text=The bank job")
     pz.wait_for_function("document.querySelector('#f-chart-name').value === 'The bank job'")
     assert "Every act" in pl.text_content("#acts .filter.on") and not page.query_selector("#tree-body .tn.act.cur")
+    assert not errors, errors
+
+
+def test_dragging_in_the_tree_moves_scenes_and_charts(server, browser, home):
+    """The project tree as Godot's scene tree: drag a scene into another scene or into an act, a chart into
+    another act or onto a scene. Each move is saved by the module that owns it."""
+    from plastico import store
+    core, srv = server()
+    core.create_project(home / "drag", "Drag")
+    root = core.project.path / "plastico"
+    w = store.load("world", root)
+    w["acts"] = [{"id": "1", "name": "", "start": ""}, {"id": "2", "name": "", "start": ""}]
+    w["scenes"] = [{"id": "pub", "name": "Pub", "kind": "inside", "act": "1", "x": 3, "z": 2},
+                   {"id": "cellar", "name": "Cellar", "kind": "inside", "act": "1", "x": 15, "z": 2}]
+    store.save(w, root=root)
+    cid = core.call("puzzles.create_chart", "The key", 1)
+    scenes = lambda: {s["id"]: s for s in world_on_disk(core.project.path)["scenes"]}  # noqa: E731
+    page, errors = open_shell(browser, srv.url)
+    page.wait_for_selector("#tree:not([hidden]) .tn.chart")
+    frame(page, "plastico").wait_for_selector("#loading", state="hidden")
+    page.wait_for_timeout(500)          # the tree settles once Plastico has loaded
+    # every branch has its guide line
+    assert page.evaluate("getComputedStyle(document.querySelector('#tree-body ul ul > li'), '::before').borderLeftWidth") == "1px"
+
+    def drag(what, onto):
+        page.drag_and_drop(f"#tree-body .tn[data-key='{what}']", f"#tree-body .tn[data-key='{onto}']")
+
+    def until(check):
+        for _ in range(80):
+            if check():
+                page.wait_for_timeout(600)     # and the tree has drawn it
+                return
+            page.wait_for_timeout(100)
+        assert check()
+
+    # a scene dropped on another goes inside it
+    drag("scene:cellar", "scene:pub")
+    until(lambda: scenes()["cellar"]["parent"] == "pub")
+    page.wait_for_function("(() => { const r = document.querySelector(\"#tree-body .tn[data-key='scene:cellar']\"); return r && r.closest('ul').closest('li').querySelector('.tn').dataset.key === 'scene:pub'; })()")
+    # a scene can't go inside a scene that is in it
+    drag("scene:pub", "scene:cellar")
+    page.wait_for_timeout(500)
+    assert scenes()["pub"]["parent"] == ""
+    # a scene dropped on an act goes straight into it, with what is inside it
+    drag("scene:pub", "act:2")
+    until(lambda: scenes()["pub"]["act"] == "2" and scenes()["cellar"]["act"] == "2")
+    drag("scene:cellar", "act:1")
+    until(lambda: scenes()["cellar"]["act"] == "1" and scenes()["cellar"]["parent"] == "")
+    # a chart dropped on another act moves there, under its "Act charts"
+    page.wait_for_selector(f"#tree-body .tn[data-key='chart:act1:{cid}']")
+    drag(f"chart:act1:{cid}", "act:2")
+    until(lambda: charts_on_disk(core.project.path)[0]["act"] == 2)
+    page.wait_for_selector(f"#tree-body .tn[data-key='chart:act2:{cid}']")
+    # a chart dropped on a scene is pinned there; from there onto another scene, it moves its pin
+    drag(f"chart:act2:{cid}", "scene:pub")
+    until(lambda: scenes()["pub"]["charts"] == [cid])
+    page.wait_for_selector(f"#tree-body .tn[data-key='chart:pub:{cid}']")
+    drag(f"chart:pub:{cid}", "scene:cellar")
+    until(lambda: scenes()["cellar"]["charts"] == [cid] and scenes()["pub"]["charts"] == [])
     assert not errors, errors
 
 
